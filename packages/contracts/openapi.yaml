@@ -1,0 +1,148 @@
+openapi: 3.1.0
+info:
+  title: Route Runner API
+  version: 1.0.0
+paths:
+  /api/health:
+    get:
+      responses:
+        "200":
+          description: Process is responsive; no provider request
+  /api/routes:
+    post:
+      summary: Generate up to three distinct pedestrian loops
+      parameters:
+        - in: header
+          name: x-amz-content-sha256
+          required: true
+          description: Lowercase SHA-256 hex digest of exact UTF-8 body bytes for CloudFront Lambda OAC
+          schema: { type: string, pattern: "^[a-f0-9]{64}$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RouteRequest" }
+      responses:
+        "200":
+          description: Useful routes, possibly partial, Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouteResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "405": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "504": { $ref: "#/components/responses/Error" }
+components:
+  responses:
+    Error:
+      description: Sanitised error; Retry-After seconds when throttling delay is known
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: object
+                required: [code, message, requestId]
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+                  requestId: { type: string }
+  schemas:
+    RouteRequest:
+      type: object
+      additionalProperties: false
+      required: [start, distanceMetres, hillPreference]
+      properties:
+        start:
+          type: object
+          additionalProperties: false
+          required: [latitude, longitude]
+          properties:
+            latitude: { type: number, minimum: -90, maximum: 90 }
+            longitude: { type: number, minimum: -180, maximum: 180 }
+        distanceMetres: { type: integer, minimum: 1000, maximum: 30000 }
+        hillPreference: { type: string, enum: [flat, balanced, hilly] }
+        seed: { type: integer, minimum: 0, maximum: 4294967295 }
+    RouteResponse:
+      type: object
+      required:
+        [
+          schemaVersion,
+          requestId,
+          seed,
+          requestedDistanceMetres,
+          routes,
+          warnings,
+          attribution,
+        ]
+      properties:
+        schemaVersion: { const: 1 }
+        requestId: { type: string }
+        seed: { type: integer, minimum: 0, maximum: 4294967295 }
+        requestedDistanceMetres: { type: integer }
+        warnings: { type: array, items: { type: string } }
+        attribution:
+          type: object
+          required: [routingProvider, text]
+          properties:
+            routingProvider: { type: string }
+            text: { type: string }
+        routes:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items: { $ref: "#/components/schemas/Route" }
+    Route:
+      type: object
+      required:
+        [
+          id,
+          distanceMetres,
+          ascentMetres,
+          descentMetres,
+          distanceErrorPercent,
+          elevationQuality,
+          geometry,
+          elevationProfile,
+          warnings,
+          roadSummary,
+        ]
+      properties:
+        id: { type: string }
+        distanceMetres: { type: number, exclusiveMinimum: 0 }
+        ascentMetres: { type: [number, "null"], minimum: 0 }
+        descentMetres: { type: [number, "null"], minimum: 0 }
+        distanceErrorPercent: { type: number }
+        elevationQuality: { type: string, enum: [available, unavailable] }
+        warnings: { type: array, items: { type: string } }
+        roadSummary: { type: array, items: { type: string } }
+        geometry:
+          type: object
+          required: [type, coordinates]
+          properties:
+            type: { const: LineString }
+            coordinates:
+              type: array
+              minItems: 3
+              items:
+                type: array
+                minItems: 2
+                maxItems: 2
+                prefixItems:
+                  - { type: number, minimum: -180, maximum: 180 }
+                  - { type: number, minimum: -90, maximum: 90 }
+        elevationProfile:
+          type: array
+          description: Empty when unavailable; otherwise increasing distance from zero through route distance
+          items:
+            type: object
+            required: [distanceMetres, elevationMetres]
+            properties:
+              distanceMetres: { type: number, minimum: 0 }
+              elevationMetres: { type: number }

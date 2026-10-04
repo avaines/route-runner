@@ -1,5 +1,5 @@
 locals {
-  module = "quiz"
+  module = "routes"
 
   unique_id         = var.unique_ids["local"]
   unique_id_account = var.unique_ids["account"]
@@ -15,6 +15,8 @@ locals {
 
   resource_prefix        = lower(replace(local.unique_id_account, "_", "-"))
   global_resource_prefix = lower(replace(local.unique_id_global, "_", "-"))
+
+  routing_parameter_name = "/${local.resource_prefix}/routing-api-key"
 
   lambdas_path = abspath("${path.module}/../../../lambdas")
 

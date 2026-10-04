@@ -1,9 +1,44 @@
-# Lambda Workspace
+# Route Lambda
 
-Use this directory for the Python workspace, shared libraries, and deployable
-Lambda packages. Keep function source and tests together; share code through an
-explicit workspace package rather than copying implementation between
-functions.
+Node.js 22, TypeScript, bundled CommonJS `dist/index.js` with `index.handler`.
 
-Document the supported Python version, dependency workflow, test and lint
-commands, package build process, and any runtime compatibility checks here.
+```
+npm ci
+npm run typecheck
+npm test
+npm run build
+npm run dev
+```
+
+The default development HTTP server binds localhost:3001 and uses synthetic circular
+fixtures. Its routes are not navigable. Vite proxies `/api`.
+For intentional live local development, populate `.env.local` with `ORS_API_KEY`
+and `ALLOW_LIVE_PROVIDER=yes`, then run `npm run dev:live` instead. This command
+loads that file explicitly and uses the real provider; requests consume quota.
+The bundle includes dependencies; deploy the contents of `dist`, including its
+CommonJS package.json. No dependencies download during invocation.
+
+Production requires `ROUTING_PARAMETER_NAME`; store the plain ORS API key (no JSON wrapper) in an SSM Parameter Store `SecureString` through a secure operator process.
+Terraform creates a write-only `UNCONFIGURED` placeholder; the real key is populated out of band.
+The backend requests decryption and rejects non-SecureString parameters. Values
+are cached for five minutes. Fetches time out after three seconds. No key belongs
+in Terraform variables or frontend configuration.
+
+Optional bounded configuration: `ROUTE_CANDIDATES` (1–6, default6),
+`PROVIDER_CONCURRENCY` (1–2, default2), `MAX_PROVIDER_ATTEMPTS` (1–8, default8),
+`REQUEST_DEADLINE_MS` (1–20000, default20000). Distance limits are shared contract
+constants, keeping both clients consistent. Geometry/scoring calibration defaults
+are centralized in `src/routing.ts`. Optional `ROUTE_CALIBRATION_JSON` accepts
+`snapMetres`, `preferredError`, `maxError`, `repeatedSoft`, `repeatedMax`,
+`duplicateOverlap`, and a partial `weights` object using keys in the defaults.
+Values are validated; distance/repetition fractions must be ordered. See
+docs/ROUTING.md before changing these uncalibrated settings.
+
+`npm run spike` is explicitly live and quota consuming. It requires
+`ALLOW_LIVE_PROVIDER=yes` and `ORS_API_KEY` supplied securely through environment,
+and a contract request JSON on stdin. Output contains summary metrics, not precise
+geometry. Do not run it in normal CI. The credential and agreed test sites were
+not supplied; live provider compatibility, local quality, quotas/terms and latency
+remain unvalidated. The provider adapter uses fixed ORS foot-walking GeoJSON URL,
+round_trip length/points/seed, elevation=true, instructions=false. Surface tags and
+road summaries are intentionally not assumed available.

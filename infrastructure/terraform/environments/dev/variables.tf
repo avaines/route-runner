@@ -31,7 +31,7 @@ variable "alert_email" {
 variable "domain_root" {
   type        = string
   description = "Public app domain for this environment (e.g. lynx.example.com)"
-  default     = "lynx.example.com"
+  default     = "route-runner.vaines.dev"
 }
 
 variable "alias_domain_names" {
@@ -43,10 +43,24 @@ variable "alias_domain_names" {
 variable "route53_zone_name" {
   type        = string
   description = "Route 53 hosted zone that contains the public app domain"
+  default     = ""
 }
 
 variable "route53_zone_id" {
   type        = string
   description = "Route 53 hosted zone ID that contains the public app domain"
   default     = null
+}
+
+variable "enable_custom_domain" {
+  type    = bool
+  default = false
+}
+variable "lambda_reserved_concurrency" {
+  type    = number
+  default = 2
+}
+variable "api_environment" {
+  type    = map(string)
+  default = {}
 }

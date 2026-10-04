@@ -31,6 +31,7 @@ __pycache__/
 *.tfstate.*
 *.tfplan
 *.tfvars
+*.tfvars.json
 !*.tfvars.example
 crash.log
 override.tf

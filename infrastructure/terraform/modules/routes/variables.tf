@@ -55,12 +55,40 @@ variable "route53_zone_id" {
 
 variable "lambda_runtime" {
   type        = string
-  description = "Python runtime used by Lambda functions"
-  default     = "python3.14"
+  description = "Node.js runtime used by Lambda functions"
+  default     = "nodejs22.x"
 }
 
 variable "cloudwatch_log_retention_days" {
   type        = number
   description = "CloudWatch Logs retention period"
-  default     = 30
+  default     = 14
+}
+
+variable "enable_custom_domain" {
+  type    = bool
+  default = false
+}
+variable "alert_email" {
+  type    = string
+  default = null
+}
+variable "lambda_reserved_concurrency" {
+  type    = number
+  default = 2
+  validation {
+    condition     = var.lambda_reserved_concurrency >= 0 && floor(var.lambda_reserved_concurrency) == var.lambda_reserved_concurrency
+    error_message = "Concurrency must be a non-negative integer; zero is the kill switch."
+  }
+}
+variable "api_environment" {
+  description = "Non-secret backend configuration overrides. Never pass credentials here."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition = alltrue([
+      for key in keys(var.api_environment) : !can(regex("(?i)(secret|token|password|api.?key|credential)", key))
+    ])
+    error_message = "Credentials and secret settings must use SSM Parameter Store, not environment override inputs."
+  }
 }
