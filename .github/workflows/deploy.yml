@@ -1,0 +1,79 @@
+name: Deploy application
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy
+        required: true
+        default: dev
+        type: choice
+        options: [dev, prod]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.13"
+  TERRAFORM_VERSION: "1.14.3"
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  deploy-dev:
+    name: Deploy dev
+    if: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository ||
+        github.event_name == 'workflow_dispatch' &&
+        inputs.environment == 'dev'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: dev
+    concurrency:
+      group: deploy-dev-${{ github.repository }}
+      cancel-in-progress: true
+    env:
+      TF_DIR: infrastructure/terraform/environments/dev
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Test, build, and deploy dev
+        uses: ./.github/actions/deploy
+        with:
+          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: template-dev-${{ github.run_id }}
+
+  deploy-prod:
+    name: Deploy prod
+    if: >-
+      ${{
+        github.event_name == 'push' ||
+        github.event_name == 'workflow_dispatch' &&
+        inputs.environment == 'prod'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: prod
+    concurrency:
+      group: deploy-prod-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      TF_DIR: infrastructure/terraform/environments/prod
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Test, build, and deploy prod
+        uses: ./.github/actions/deploy
+        with:
+          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: template-prod-${{ github.run_id }}

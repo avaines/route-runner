@@ -1,0 +1,103 @@
+name: Test, build, and deploy application
+description: Validate the application and infrastructure, then deploy the frontend
+
+inputs:
+  aws-role-arn:
+    description: AWS role to assume for this environment
+    required: true
+  role-session-name:
+    description: AWS role session name
+    required: true
+
+runs:
+  using: composite
+  steps:
+  - name: Set up Python
+    uses: actions/setup-python@v5
+    with:
+      python-version: ${{ env.PYTHON_VERSION }}
+
+  - name: Install uv
+    shell: bash
+    run: python -m pip install uv
+
+  - name: Set up Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: ${{ env.NODE_VERSION }}
+      cache: npm
+      cache-dependency-path: infrastructure/frontend/package-lock.json
+
+  - name: Install frontend dependencies
+    shell: bash
+    working-directory: infrastructure/frontend
+    run: npm ci
+
+  - name: Test Lambda functions
+    shell: bash
+    working-directory: infrastructure/lambdas
+    run: make test
+
+  - name: Lint Lambda functions
+    shell: bash
+    working-directory: infrastructure/lambdas
+    run: make lint
+
+  - name: Check lint did not rewrite files
+    shell: bash
+    run: git diff --exit-code
+
+  - name: Lint frontend
+    shell: bash
+    working-directory: infrastructure/frontend
+    run: npm run lint
+
+  - name: Test frontend
+    shell: bash
+    working-directory: infrastructure/frontend
+    run: npm run test
+
+  - name: Build frontend
+    shell: bash
+    working-directory: infrastructure/frontend
+    run: npm run build
+
+  - name: Set up Terraform
+    uses: hashicorp/setup-terraform@v3
+    with:
+      terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+  - name: Check Terraform formatting
+    shell: bash
+    run: terraform fmt -check -recursive infrastructure/terraform
+
+  - name: Configure AWS credentials
+    uses: aws-actions/configure-aws-credentials@v4
+    with:
+      aws-region: ${{ env.AWS_REGION }}
+      role-to-assume: ${{ inputs.aws-role-arn }}
+      role-session-name: ${{ inputs.role-session-name }}
+
+  - name: Initialize Terraform
+    shell: bash
+    run: terraform -chdir="${TF_DIR}" init -input=false -no-color
+
+  - name: Validate Terraform
+    shell: bash
+    run: terraform -chdir="${TF_DIR}" validate -no-color
+
+  - name: Apply Terraform
+    shell: bash
+    run: terraform -chdir="${TF_DIR}" apply -input=false -auto-approve -no-color
+
+  - name: Upload frontend
+    shell: bash
+    run: |
+      frontend_bucket="$(terraform -chdir="${TF_DIR}" output -raw portal_bucket)"
+      aws s3 sync infrastructure/frontend/dist/ "s3://${frontend_bucket}/" --delete
+
+  - name: Invalidate CloudFront
+    shell: bash
+    run: |
+      distribution_id="$(terraform -chdir="${TF_DIR}" output -raw cloudfront_distribution_id)"
+      aws cloudfront create-invalidation --distribution-id "${distribution_id}" --paths "/*"

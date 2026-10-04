@@ -1,0 +1,9 @@
+output "portal_url" { value = module.quiz.portal_url }
+output "cloudfront_distribution_id" { value = module.quiz.cloudfront_distribution_id }
+output "portal_bucket" { value = module.quiz.portal_bucket }
+output "image_bucket" { value = module.quiz.image_bucket }
+output "quiz_table" { value = module.quiz.quiz_table }
+output "quiz_function_name" { value = module.quiz.quiz_function_name }
+output "cognito_user_pool_id" { value = module.quiz.cognito_user_pool_id }
+output "cognito_user_pool_client_id" { value = module.quiz.cognito_user_pool_client_id }
+output "cognito_login_url" { value = module.quiz.cognito_login_url }
