@@ -1,99 +1,90 @@
-# Project Name
+# Route Runner
 
-> One-sentence description of the project and who it is for.
+A mobile-friendly running route planner: choose a start, an approximate distance
+and a hill preference, then inspect up to three circular routes on Google
+satellite imagery.
 
-Replace the placeholders in this repository before using it. Keep this README
-focused on what the project does and the commands contributors need to build,
-test, and deploy it.
+Routes use roads and paths. Hill preferences are relative to the generated
+candidates, and map data does not establish current access or surface conditions.
+There is no live navigation, route export, account system or cloud synchronisation.
 
-## Repository Layout
+## Project layout
 
-```text
-.
-├── .github/workflows/       # CI and deployment workflows
-├── infrastructure/
-│   ├── frontend/            # Vite + React + TypeScript application
-│   ├── lambdas/             # Python Lambda workspace and tests
-│   └── terraform/
-│       ├── environments/    # Per-environment Terraform roots
-│       └── modules/         # Reusable infrastructure modules
-└── docs/                    # Architecture, specification, and decisions
-```
+| Directory | Purpose |
+| --- | --- |
+| `infrastructure/frontend/` | Vite, React and TypeScript browser application |
+| `infrastructure/lambdas/` | TypeScript routing API, provider adapter and tests |
+| `packages/contracts/` | Shared runtime validation and API types |
+| `infrastructure/terraform/` | Environment configuration and reusable AWS resources |
+| `.github/workflows/` | Validation and operator-controlled deployment |
+| `docs/` | Specification, architecture and release validation |
 
-Adapt or remove components that the project does not need. Keep environment
-configuration separate from reusable Terraform modules, and keep application
-code and infrastructure in their respective directories.
+## Local development
 
-## Getting Started
-
-### Prerequisites
-
-- AWS CLI configured for the intended account and role
-- Terraform (record the supported version here)
-- Python (record the supported version here) and [uv](https://docs.astral.sh/uv/)
-- Node.js (record the supported version here) and npm
-
-### Frontend
+Use Node.js 22.22.0 (pinned in `.nvmrc` and CI) and npm. Install each application's locked dependencies:
 
 ```sh
-cd infrastructure/frontend
-npm install
-npm run dev
+npm --prefix infrastructure/lambdas ci
+npm --prefix infrastructure/frontend ci
 ```
 
-Document required local environment variables in
-`infrastructure/frontend/.env.example`. Never commit real credentials or
-environment files containing secrets.
-
-### Lambda Functions
+Start the sample-data backend and frontend in separate terminals:
 
 ```sh
-cd infrastructure/lambdas
-uv sync
-make test
-make lint
+npm --prefix infrastructure/lambdas run dev
 ```
 
-Add each function as a package with its own source and tests. Document any
-packaging or runtime verification commands provided by the project.
-
-### Terraform
-
-Initialize and validate from the selected environment root:
-
 ```sh
-terraform -chdir=infrastructure/terraform/environments/dev init
-terraform -chdir=infrastructure/terraform/environments/dev validate
-terraform -chdir=infrastructure/terraform/environments/dev plan
+npm --prefix infrastructure/frontend run dev
 ```
 
-Review the plan and confirm the AWS account, workspace, and environment before
-applying changes. Add production instructions only after the production setup is
-defined.
+See the [frontend instructions](infrastructure/frontend/README.md) for map-key
+configuration and sample mode, and the [backend instructions](infrastructure/lambdas/README.md)
+for provider configuration. Local sample geometry demonstrates application
+behaviour; it is not a runnable route or a validation of provider quality.
 
-## Validation
+The routing credential belongs only in backend configuration or AWS SSM
+Parameter Store. The Google browser key is public and must have website/API restrictions.
+Never commit credentials or local environment files.
 
-Replace these examples with the commands configured by the project:
+## Checks
 
 ```sh
+npm --prefix infrastructure/lambdas run typecheck
+npm --prefix infrastructure/lambdas test
+npm --prefix infrastructure/lambdas run build
 npm --prefix infrastructure/frontend run lint
 npm --prefix infrastructure/frontend test
 npm --prefix infrastructure/frontend run build
-make -C infrastructure/lambdas test
-make -C infrastructure/lambdas lint
 terraform fmt -check -recursive infrastructure/terraform
 ```
 
-## Deployment
+Terraform validation and deployment preparation are documented in the
+[Terraform guide](infrastructure/terraform/README.md). Deployment roles and
+workflow inputs are documented in the [workflow guide](.github/workflows/README.md).
 
-The starter deployment workflow is in `.github/workflows/deploy.yml`. Configure
-the GitHub environments, OIDC roles, Terraform outputs, and version values
-described in [.github/workflows/README.md](.github/workflows/README.md) before
-enabling deployments. Review CI triggers, rollback procedure, and post-deployment
-checks for the project. Do not add real account IDs, role ARNs, tokens, or secret
-values to this repository.
+## Hosting and release
 
-## Project Documentation
+The frontend is served from a private S3 bucket through CloudFront. `/api/*`
+forwards to an IAM-protected Lambda Function URL using CloudFront origin access
+control. The browser hashes POST bodies for origin signing; no AWS credentials
+are exposed. The API is public through CloudFront unless a separate authentication
+design is added. Routing credentials are stored in SSM Parameter Store.
 
+The dev backend configuration is already supplied. Verify the AWS account and
+application region separately before planning. The remote state region does not
+determine the application's region. Custom DNS is optional.
+
+Live provider compatibility, West Yorkshire route quality, provider terms,
+Google configuration and deployed security checks remain release gates. Use the
+[release checklist](docs/RELEASE_CHECKLIST.md) before operating the app with real
+provider credentials or publishing it. Deployment is an explicit operator step.
+
+## Design
+
+- [Product specification](docs/SPECIFICATION.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Specification](docs/SPECIFICATION.md)
+- [Routing model and calibration](docs/ROUTING.md)
+- [API contract](packages/contracts/openapi.yaml)
+- [Local validation results](docs/VALIDATION.md)
+- [Release validation](docs/RELEASE_CHECKLIST.md)

@@ -1,79 +1,97 @@
-name: Deploy application
-
+name: Review and deploy dev
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, reopened, synchronize]
-  push:
-    branches: [main]
   workflow_dispatch:
-    inputs:
-      environment:
-        description: Environment to deploy
-        required: true
-        default: dev
-        type: choice
-        options: [dev, prod]
-
 permissions:
   contents: read
-  id-token: write
-
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
 env:
-  AWS_REGION: us-east-1
-  NODE_VERSION: "22"
-  PYTHON_VERSION: "3.13"
-  TERRAFORM_VERSION: "1.14.3"
-  TF_IN_AUTOMATION: "true"
-
+  TF_DIR: infrastructure/terraform/environments/dev
+  TF_IN_AUTOMATION: 'true'
 jobs:
-  deploy-dev:
-    name: Deploy dev
-    if: >-
-      ${{
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository ||
-        github.event_name == 'workflow_dispatch' &&
-        inputs.environment == 'dev'
-      }}
+  plan:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    environment: dev-plan
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+      - name: Read the restricted browser map key from SSM
+        id: maps
+        env:
+          MAPS_PARAMETER_NAME: ${{ vars.GOOGLE_MAPS_PARAMETER_NAME }}
+        shell: bash
+        run: |
+          test -n "$MAPS_PARAMETER_NAME" || { echo 'Set GOOGLE_MAPS_PARAMETER_NAME in dev-plan.' >&2; exit 1; }
+          maps_key="$(aws ssm get-parameter --name "$MAPS_PARAMETER_NAME" --with-decryption --query Parameter.Value --output text)"
+          if [[ ! "$maps_key" =~ ^[A-Za-z0-9_-]+$ || "$maps_key" == UNCONFIGURED || "$maps_key" == None ]]; then
+            echo 'Populate the Google Maps SSM parameter with a restricted browser API key before deployment.' >&2
+            exit 1
+          fi
+          echo "::add-mask::$maps_key"
+          printf 'key=%s\n' "$maps_key" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/deploy
+        with:
+          google-maps-api-key: ${{ steps.maps.outputs.key }}
+      - name: Plan and render for review
+        env:
+          TF_VARS_JSON: ${{ vars.TF_VARS_JSON }}
+        run: |
+          test -n "$TF_VARS_JSON"
+          printf '%s\n' "$TF_VARS_JSON" > "$TF_DIR/ci.auto.tfvars.json"
+          terraform -chdir="$TF_DIR" init -input=false
+          terraform -chdir="$TF_DIR" plan -input=false -out=reviewed.tfplan
+          terraform -chdir="$TF_DIR" show -no-color reviewed.tfplan > "$TF_DIR/reviewed-plan.txt"
+          mkdir release
+          cp "$TF_DIR/reviewed.tfplan" "$TF_DIR/reviewed-plan.txt" "$TF_DIR/ci.auto.tfvars.json" "$TF_DIR/.terraform/routes-api.zip" release/
+          cp -R infrastructure/frontend/dist release/frontend
+          echo 'Review the reviewed-plan artifact, then approve the dev environment deployment.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-release-${{ github.sha }}
+          path: release/
+          retention-days: 30
+  deploy:
+    needs: plan
+    runs-on: ubuntu-latest
+    # Configure required reviewers here before dispatching this workflow.
     environment: dev
-    concurrency:
-      group: deploy-dev-${{ github.repository }}
-      cancel-in-progress: true
-    env:
-      TF_DIR: infrastructure/terraform/environments/dev
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Test, build, and deploy dev
-        uses: ./.github/actions/deploy
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
-          role-session-name: template-dev-${{ github.run_id }}
-
-  deploy-prod:
-    name: Deploy prod
-    if: >-
-      ${{
-        github.event_name == 'push' ||
-        github.event_name == 'workflow_dispatch' &&
-        inputs.environment == 'prod'
-      }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: prod
-    concurrency:
-      group: deploy-prod-${{ github.repository }}
-      cancel-in-progress: false
-    env:
-      TF_DIR: infrastructure/terraform/environments/prod
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Test, build, and deploy prod
-        uses: ./.github/actions/deploy
+          name: reviewed-release-${{ github.sha }}
+          path: release
+      - uses: hashicorp/setup-terraform@v3
         with:
-          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
-          role-session-name: template-prod-${{ github.run_id }}
+          terraform_version: '1.14.3'
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+      - name: Apply exact reviewed plan
+        run: |
+          cp release/ci.auto.tfvars.json "$TF_DIR/ci.auto.tfvars.json"
+          terraform -chdir="$TF_DIR" init -input=false
+          cp release/routes-api.zip "$TF_DIR/.terraform/routes-api.zip"
+          cp release/reviewed.tfplan "$TF_DIR/reviewed.tfplan"
+          terraform -chdir="$TF_DIR" apply -input=false reviewed.tfplan
+      - name: Publish assets first and HTML last
+        run: |
+          frontend_bucket="$(terraform -chdir="$TF_DIR" output -raw portal_bucket)"
+          distribution_id="$(terraform -chdir="$TF_DIR" output -raw cloudfront_distribution_id)"
+          aws s3 sync release/frontend/ "s3://${frontend_bucket}/" --exclude index.html --cache-control 'public,max-age=31536000,immutable'
+          aws s3 cp release/frontend/index.html "s3://${frontend_bucket}/index.html" --cache-control 'no-cache,max-age=0,must-revalidate' --content-type 'text/html'
+          aws cloudfront create-invalidation --distribution-id "$distribution_id" --paths / /index.html

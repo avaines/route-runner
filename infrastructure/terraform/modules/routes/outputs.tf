@@ -1,0 +1,9 @@
+output "portal_bucket" { value = aws_s3_bucket.frontend.id }
+output "cloudfront_distribution_id" { value = aws_cloudfront_distribution.app.id }
+output "application_url" { value = "https://${aws_cloudfront_distribution.app.domain_name}" }
+output "lambda_function_name" { value = aws_lambda_function.api.function_name }
+output "routing_parameter_name" { value = aws_ssm_parameter.routing.name }
+output "routing_parameter_arn" { value = aws_ssm_parameter.routing.arn }
+output "google_maps_parameter_name" { value = aws_ssm_parameter.google_maps.name }
+output "google_maps_parameter_arn" { value = aws_ssm_parameter.google_maps.arn }
+output "function_url" { value = aws_lambda_function_url.api.function_url }
