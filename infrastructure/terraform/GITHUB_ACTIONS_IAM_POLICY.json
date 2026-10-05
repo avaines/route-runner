@@ -155,7 +155,7 @@
             "Sid": "ManageRouteRunnerDnsRecords",
             "Effect": "Allow",
             "Action": "route53:ChangeResourceRecordSets",
-            "Resource": "arn:aws:route53:::hostedzone/Z02965972DB3SHUMMD7TA"
+            "Resource": "arn:aws:route53:::hostedzone/Z02513943OI8D0F4XM1MJ"
         },
         {
             "Sid": "ManageRouteRunnerLogs",
