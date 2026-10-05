@@ -64,3 +64,9 @@ variable "api_environment" {
   type    = map(string)
   default = {}
 }
+
+variable "frontend_bucket_force_destroy" {
+  type        = bool
+  description = "Allow ephemeral dev teardown to remove frontend object versions."
+  default     = true
+}

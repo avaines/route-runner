@@ -19,7 +19,7 @@ The bundle includes dependencies; deploy the contents of `dist`, including its
 CommonJS package.json. No dependencies download during invocation.
 
 Production requires `ROUTING_PARAMETER_NAME`; store the plain ORS API key (no JSON wrapper) in an SSM Parameter Store `SecureString` through a secure operator process.
-Terraform creates a write-only `UNCONFIGURED` placeholder; the real key is populated out of band.
+Terraform creates an UNSET placeholder; populate the plain key manually in SSM.
 The backend requests decryption and rejects non-SecureString parameters. Values
 are cached for five minutes. Fetches time out after three seconds. No key belongs
 in Terraform variables or frontend configuration.

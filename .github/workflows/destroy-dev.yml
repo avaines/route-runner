@@ -1,0 +1,64 @@
+name: Destroy Route Runner dev
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type 'confirm' to destroy dev infrastructure (SSM keys are retained)
+        required: true
+        type: string
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: route-runner-dev
+  cancel-in-progress: false
+env:
+  TF_DIR: infrastructure/terraform/environments/dev
+  TF_IN_AUTOMATION: 'true'
+jobs:
+  destroy-dev:
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.merged == true &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && inputs.confirmation == 'confirm')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+      - name: Build Lambda package required by Terraform
+        run: |
+          npm --prefix infrastructure/lambdas ci
+          npm --prefix infrastructure/lambdas run build
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.14.3'
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+      - name: Initialise selected dev state
+        run: |
+          terraform -chdir="$TF_DIR" init -input=false
+          terraform -chdir="$TF_DIR" validate
+      - name: Enable cleanup of versioned dev assets
+        run: |
+          if terraform -chdir="$TF_DIR" state list | grep -Fxq 'module.routes.aws_s3_bucket.frontend'; then
+            terraform -chdir="$TF_DIR" plan -input=false -target=module.routes.aws_s3_bucket.frontend -out=cleanup-bucket.tfplan
+            terraform -chdir="$TF_DIR" apply -input=false cleanup-bucket.tfplan
+          fi
+      - name: Destroy dev application infrastructure
+        run: |
+          terraform -chdir="$TF_DIR" plan -destroy -input=false -out=destroy.tfplan
+          terraform -chdir="$TF_DIR" show -no-color destroy.tfplan
+          terraform -chdir="$TF_DIR" apply -input=false destroy.tfplan

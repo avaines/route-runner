@@ -11,6 +11,7 @@ resource "aws_ssm_parameter" "routing" {
   tags = local.default_tags
 
   lifecycle {
+    prevent_destroy = true
     # Retain subsequent out-of-band credential updates on future applies.
     ignore_changes = [value_wo_version]
   }

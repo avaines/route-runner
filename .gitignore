@@ -30,9 +30,9 @@ __pycache__/
 *.tfstate
 *.tfstate.*
 *.tfplan
-*.tfvars
-*.tfvars.json
 !*.tfvars.example
+!infrastructure/terraform/environments/dev/*.tfvars
+!infrastructure/terraform/environments/prod/*.tfvars
 crash.log
 override.tf
 override.tf.json

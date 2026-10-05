@@ -92,3 +92,9 @@ variable "api_environment" {
     error_message = "Credentials and secret settings must use SSM Parameter Store, not environment override inputs."
   }
 }
+
+variable "frontend_bucket_force_destroy" {
+  type        = bool
+  description = "Allow removal of all frontend object versions when destroying the bucket."
+  default     = false
+}

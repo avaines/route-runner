@@ -1,19 +1,63 @@
-name: Review and deploy dev
+name: Deploy Route Runner
 on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy
+        required: true
+        default: dev
+        type: choice
+        options: [dev, prod]
 permissions:
   contents: read
 concurrency:
-  group: deploy-dev
+  group: route-runner-${{ github.event_name == 'pull_request' && 'dev' || github.event_name == 'push' && 'prod' || inputs.environment }}
   cancel-in-progress: false
 env:
-  TF_DIR: infrastructure/terraform/environments/dev
   TF_IN_AUTOMATION: 'true'
 jobs:
-  plan:
-    if: github.ref == 'refs/heads/main'
+  target:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    environment: dev-plan
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      environment: ${{ steps.target.outputs.environment }}
+      active: ${{ steps.target.outputs.active }}
+    steps:
+      - id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REQUESTED_ENV: ${{ inputs.environment }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [[ "$EVENT" == pull_request ]]; then
+            echo 'environment=dev' >> "$GITHUB_OUTPUT"
+            state="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq .state)"
+            echo "active=$([[ "$state" == open ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          else
+            environment=prod
+            if [[ "$EVENT" == workflow_dispatch ]]; then environment="$REQUESTED_ENV"; fi
+            [[ "$environment" == dev || "$environment" == prod ]]
+            echo "environment=$environment" >> "$GITHUB_OUTPUT"
+            echo 'active=true' >> "$GITHUB_OUTPUT"
+          fi
+  plan:
+    needs: target
+    if: needs.target.outputs.active == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.target.outputs.environment }}-plan
+    timeout-minutes: 30
+    env:
+      TF_DIR: infrastructure/terraform/environments/${{ needs.target.outputs.environment }}
     permissions:
       contents: read
       id-token: write
@@ -24,46 +68,31 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
-      - name: Read the restricted browser map key from SSM
-        id: maps
-        env:
-          MAPS_PARAMETER_NAME: ${{ vars.GOOGLE_MAPS_PARAMETER_NAME }}
-        shell: bash
-        run: |
-          test -n "$MAPS_PARAMETER_NAME" || { echo 'Set GOOGLE_MAPS_PARAMETER_NAME in dev-plan.' >&2; exit 1; }
-          maps_key="$(aws ssm get-parameter --name "$MAPS_PARAMETER_NAME" --with-decryption --query Parameter.Value --output text)"
-          if [[ ! "$maps_key" =~ ^[A-Za-z0-9_-]+$ || "$maps_key" == UNCONFIGURED || "$maps_key" == None ]]; then
-            echo 'Populate the Google Maps SSM parameter with a restricted browser API key before deployment.' >&2
-            exit 1
-          fi
-          echo "::add-mask::$maps_key"
-          printf 'key=%s\n' "$maps_key" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/deploy
         with:
-          google-maps-api-key: ${{ steps.maps.outputs.key }}
+          google-maps-api-key: ${{ secrets.GOOGLE_MAPS_API_KEY }}
       - name: Plan and render for review
-        env:
-          TF_VARS_JSON: ${{ vars.TF_VARS_JSON }}
         run: |
-          test -n "$TF_VARS_JSON"
-          printf '%s\n' "$TF_VARS_JSON" > "$TF_DIR/ci.auto.tfvars.json"
           terraform -chdir="$TF_DIR" init -input=false
           terraform -chdir="$TF_DIR" plan -input=false -out=reviewed.tfplan
           terraform -chdir="$TF_DIR" show -no-color reviewed.tfplan > "$TF_DIR/reviewed-plan.txt"
           mkdir release
-          cp "$TF_DIR/reviewed.tfplan" "$TF_DIR/reviewed-plan.txt" "$TF_DIR/ci.auto.tfvars.json" "$TF_DIR/.terraform/routes-api.zip" release/
+          cp "$TF_DIR/reviewed.tfplan" "$TF_DIR/reviewed-plan.txt" "$TF_DIR/.terraform/routes-api.zip" release/
           cp -R infrastructure/frontend/dist release/frontend
-          echo 'Review the reviewed-plan artifact, then approve the dev environment deployment.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Review the reviewed-plan artifact before approving deployment.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: reviewed-release-${{ github.sha }}
           path: release/
           retention-days: 30
   deploy:
-    needs: plan
+    needs: [target, plan]
     runs-on: ubuntu-latest
     # Configure required reviewers here before dispatching this workflow.
-    environment: dev
+    environment: ${{ needs.target.outputs.environment }}
+    timeout-minutes: 45
+    env:
+      TF_DIR: infrastructure/terraform/environments/${{ needs.target.outputs.environment }}
     permissions:
       contents: read
       id-token: write
@@ -83,7 +112,6 @@ jobs:
           allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
       - name: Apply exact reviewed plan
         run: |
-          cp release/ci.auto.tfvars.json "$TF_DIR/ci.auto.tfvars.json"
           terraform -chdir="$TF_DIR" init -input=false
           cp release/routes-api.zip "$TF_DIR/.terraform/routes-api.zip"
           cp release/reviewed.tfplan "$TF_DIR/reviewed.tfplan"

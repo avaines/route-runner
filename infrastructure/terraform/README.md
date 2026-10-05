@@ -14,7 +14,7 @@ terraform -chdir=infrastructure/terraform/environments/dev init -backend=false
 terraform -chdir=infrastructure/terraform/environments/dev validate
 ```
 
-The existing dev backend and local dev.auto.tfvars remain operator-owned. The
+The backend and committed non-secret environment `.auto.tfvars` files are operator-owned. The
 configured region is preserved; do not infer a deployment region from the state
 bucket region. Verify the account and region before an authorised plan against
 AWS. An account allowlist guards both regional and us-east-1 certificate providers.
@@ -36,19 +36,11 @@ This uses the header behaviour of AWS's
 without that managed policy's cookie/query forwarding. Verify signed POSTs after
 applying: local Terraform validation does not exercise CloudFront API restrictions.
 
-Terraform creates the `routing_parameter_name` output as an SSM **SecureString**
-using the default `aws/ssm` encryption key. It starts with a write-only
-`UNCONFIGURED` placeholder, which Lambda rejects until populated. Set the plain ORS
-API key, without JSON wrapping, securely in Parameter Store after provisioning.
-`value_wo` keeps values out of Terraform state; the unchanged write-only version
-preserves subsequent operator updates. Do not increment it to rotate the key.
-The parameter's name is `/<resource-prefix>/routing-api-key`.
-
-If you already created this parameter manually, import it into
-`module.routes.aws_ssm_parameter.routing` before applying rather than overwriting
-it. Review the plan to ensure no value update or parameter replacement is planned.
-Lambda receives `ROUTING_PARAMETER_NAME` and has `ssm:GetParameter` permission
-only for that parameter. Custom KMS keys need separate decrypt permissions.
+Terraform creates both API-key SSM SecureString parameters with write-only `UNSET`
+placeholders. Populate their plain values manually. `prevent_destroy = true`
+protects both resources, and the unchanged write-only version preserves manual
+updates. CI builds with the Google Maps GitHub secret; Lambda reads the routing key from SSM.
+A full destroy plan will fail while these protected parameters are present.
 
 `api_environment` accepts non-secret configuration only;
 backend README lists supported variables. Keep REQUEST_DEADLINE_MS below the
@@ -77,10 +69,15 @@ OIDC setup and release retention. AWS requirements checked against:
 https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html
 and the AWS provider v6.50.0 lambda_permission documentation.
 
-The second SecureString, `google_maps_parameter_name`, holds the restricted Google
-Maps JavaScript browser key. Replace its `UNCONFIGURED` placeholder after initial
-provisioning. Set the GitHub dev-plan variable `GOOGLE_MAPS_PARAMETER_NAME` to its
-name; deployment reads it before the frontend build. Lambda needs only the routing
-parameter and is not granted access to the Google parameter. Both use write-only
-bootstrap values so real keys stay out of Terraform state. Local development
-continues to use the frontend `.env.local` file.
+## Environment roots and teardown
+
+Only `environments/dev` is implemented. The production directory remains a
+placeholder until a release is agreed; selecting prod is expected to fail.
+
+The module's `frontend_bucket_force_destroy` defaults to false. The dev root
+defaults it to true so authorised ephemeral teardown can remove all frontend
+objects, versions and delete markers. Production defaults to false, preventing
+deletion of a nonempty frontend bucket unless explicitly overridden. This option
+does not itself initiate teardown. A bucket provisioned with false must first
+receive an authorised apply updating that setting before automatic deletion can
+use it; a destroy plan alone does not update the stored setting.
