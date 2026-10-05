@@ -24,7 +24,7 @@ and are expected to fail until a release is agreed. `prod-plan` and `prod` setup
 below applies only to that future release:
 
 - Each has secret `AWS_ROLE_ARN` and variables `AWS_REGION`, `AWS_ACCOUNT_ID`.
-- Plan environments need access to the existing `GOOGLE_MAPS_API_KEY` GitHub Actions secret.
+- Plan environments need access to the existing `VITE_GOOGLE_MAPS_API_KEY` GitHub Actions secret.
 - Plan roles need state read and locking and infrastructure describe permissions.
 - Deploy roles need infrastructure write permissions. Dev also needs teardown
   permissions, including deletion of all versions in the frontend bucket.
@@ -46,7 +46,7 @@ Terraform creates both SSM SecureString parameters with `UNSET` placeholders.
 Populate both with plain API keys manually after initial provisioning. Both have
 `prevent_destroy = true` and preserve manual value changes.
 
-The frontend build uses `${{ secrets.GOOGLE_MAPS_API_KEY }}` directly. Both keys
+The frontend build uses `${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}` directly. Both keys
 are already available as GitHub Actions secrets and in AWS SSM; CI does not copy,
 fetch or populate them in SSM. It does not need the routing key for offline tests
 or packaging. Deployed Lambda reads the routing key from SSM. Local development

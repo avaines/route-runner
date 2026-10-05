@@ -1,5 +1,5 @@
 resource "aws_ssm_parameter" "routing" {
-  name        = local.routing_parameter_name
+  name        = "/${local.resource_prefix}/routing-api-key"
   description = "openrouteservice API key; populate securely after provisioning"
   type        = "SecureString"
   tier        = "Standard"

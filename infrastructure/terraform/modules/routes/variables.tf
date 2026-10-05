@@ -65,10 +65,6 @@ variable "cloudwatch_log_retention_days" {
   default     = 14
 }
 
-variable "enable_custom_domain" {
-  type    = bool
-  default = false
-}
 variable "alert_email" {
   type    = string
   default = null

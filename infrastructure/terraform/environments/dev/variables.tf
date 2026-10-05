@@ -52,10 +52,6 @@ variable "route53_zone_id" {
   default     = null
 }
 
-variable "enable_custom_domain" {
-  type    = bool
-  default = false
-}
 variable "lambda_reserved_concurrency" {
   type    = number
   default = 2

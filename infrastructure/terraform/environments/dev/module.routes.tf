@@ -19,9 +19,10 @@ module "routes" {
 
   environment = var.environment
 
-  domain_root       = var.domain_root
-  route53_zone_id   = var.route53_zone_id
-  route53_zone_name = var.route53_zone_name
+  alias_domain_names = var.alias_domain_names
+  domain_root        = var.domain_root
+  route53_zone_id    = var.route53_zone_id
+  route53_zone_name  = var.route53_zone_name
 
   alert_email = var.alert_email
 

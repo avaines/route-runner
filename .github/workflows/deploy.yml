@@ -67,9 +67,17 @@ jobs:
         with:
           aws-region: ${{ vars.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      - name: Check Google Maps build key
+        env:
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+        run: |
+          if [[ -z "${VITE_GOOGLE_MAPS_API_KEY//[[:space:]]/}" ]]; then
+            echo '::error::VITE_GOOGLE_MAPS_API_KEY must be available to the plan environment before building the frontend.'
+            exit 1
+          fi
       - uses: ./.github/actions/deploy
         with:
-          google-maps-api-key: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          google-maps-api-key: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
       - name: Plan and render for review
         run: |
           terraform -chdir="$TF_DIR" init -input=false

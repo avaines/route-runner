@@ -20,11 +20,15 @@ bucket region. Verify the account and region before an authorised plan against
 AWS. An account allowlist guards both regional and us-east-1 certificate providers.
 Do not apply without explicit authorisation and a reviewed plan.
 
-`enable_custom_domain=false` uses the CloudFront hostname without DNS lookup or
-certificate creation. Enable it only after confirming domain_root,
-route53_zone_name (or route53_zone_id), and aliases. Certificate validation runs
-in us-east-1. The initial frontend uses no path-based SPA fallback, so API errors
-cannot be turned into HTML.
+DNS and the ACM certificate are configured from `domain_root`,
+`route53_zone_name` (or `route53_zone_id`), and `alias_domain_names`.
+Certificate validation runs in us-east-1.
+
+DNS follows the quiz module layout: `aws_route53_record.main.tf` and
+`main_ipv6.tf` create the primary A/AAAA records from `domain_root`;
+`aliases.tf` and `aliases_ipv6.tf` create A/AAAA records for each entry in
+`alias_domain_names`. All records alias the CloudFront distribution.
+Allow the deployed hostname in the Google Maps browser key's HTTP referrers.
 
 The API origin request policy forwards all viewer headers except `Host`, using
 CloudFront's `allExcept` mode. This includes `Content-Type` and the browser's
