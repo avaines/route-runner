@@ -41,3 +41,6 @@ override.tf.json
 
 # Build artifacts
 infrastructure/lambdas/dist/
+
+# Local route-quality regression traces (may contain precise home locations)
+infrastructure/lambdas/test/private/

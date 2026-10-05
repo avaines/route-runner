@@ -145,19 +145,19 @@ An optional `GET /api/health` checks process responsiveness without contacting t
 
 ## Candidate generation and ranking
 
-First implement a provider adapter with `generateRoundTrip(start, distance, seed, deadline)`. Use openrouteservice pedestrian round-trip routing and request elevation. Its documented round-trip options include length, points and seed; elevation and additional route details are available, subject to endpoint/profile compatibility. These must be tested together against the live hosted service before finalising requests. [3]
+The provider adapter supports both seeded round trips and pedestrian routes through server-generated waypoints. Use openrouteservice pedestrian routing and request elevation. The guided strategy is preferred because live regression showed that random round trips can miss a narrow, low-gradient corridor even when the pedestrian graph contains it. [3]
 
 Proposed per-request pipeline:
 
 1. Validate and normalise input; create an overall deadline and request ID.
-2. Request up to six candidate loops with deterministic derived seeds; limit concurrent upstream calls to two.
+2. Probe up to eight evenly spaced loop directions, then use the remaining request budget around the two directions most promising for the selected hill preference. Correct waypoint scale from the observed network distance and limit concurrent upstream calls to two.
 3. Validate provider geometry, distances and elevation. Reject non-finite or malformed outputs and paths that fail to return near the start.
 4. Compute quality metrics and remove duplicate or effectively identical loops.
-5. Prefer candidates within 5% of requested distance. If needed, allow up to 10% with a visible warning. Reject candidates outside 10% in MVP and offer regeneration or a different target.
+5. Rank distance error continuously so a small threshold crossing cannot override a material terrain difference. Warn above 5% and reject candidates outside 10% in MVP.
 6. Rank remaining candidates using the selected hill preference and quality penalties; select up to three with diversity between them.
 7. Return partial results if some provider calls fail, subject to the deadline.
 
-Do not retry every failed candidate blindly. At most one bounded retry for a transient failure when time remains, respecting Retry-After; no retries for invalid input or authentication failure. Count retries against an absolute ceiling of eight upstream attempts. These are initial tunable limits, not a provider throughput promise.
+Guided discovery permits eight coarse probes and eight focused neighbourhood probes: 16 actual upstream calls maximum, concurrency two and one shared deadline. Every call consumes this budget. Providers without guided routing retain six seeded candidates and an eight-attempt ceiling, including at most one bounded transient retry per candidate. Do not retry authentication failures, invalid requests or throttling, and respect Retry-After. These are tunable application limits, not a provider throughput promise.
 
 ### Quality metrics
 
@@ -167,7 +167,7 @@ Use provider ascent/descent where trustworthy; derive sustained gradients from a
 
 Detect repeated sections using matched/quantised road segments with spatial tolerance, not raw coordinate equality. Intentional short shared access to the start is acceptable. Initial soft penalty above 15% repeated distance and rejection above 40%; revise using local results. Deduplicate loops even if travelled in the opposite direction. Preserve several genuinely different alternatives rather than selecting only the top near-identical routes.
 
-Ranking should use explicit, configurable penalties and stable tie-breaking. For `flat`, give the highest terrain penalty to ascent and sustained steep uphill sections. For `balanced`, favour distance accuracy, low repetition and moderate climbing. For `hilly`, prefer ascent while limiting repetition and distance error; cap the climbing reward so an excessive detour cannot win. Record the scoring formula and weights in code/documentation after calibration; arbitrary initial weights are not a validated model.
+Ranking uses explicit, configurable penalties and stable tie-breaking. For `flat`, give the highest terrain penalty to ascent and sustained steep uphill sections. For `balanced`, favour distance accuracy, low repetition and route shape without monotonically pushing results toward the flattest option. For `hilly`, prefer ascent while limiting repetition and distance error; cap the climbing reward so an excessive detour cannot win. Record the scoring formula and weights in code/documentation after calibration; arbitrary initial weights are not a validated model.
 
 Hill preferences are relative rankings among generated routes. This does not find the globally flattest loop or guarantee a requested amount of climbing. If elevation is unavailable for all candidates, return usable distance-based routes with a clear warning that the hill preference could not be applied. Exclude unknown-elevation candidates from terrain comparison when sufficient known-elevation options exist.
 

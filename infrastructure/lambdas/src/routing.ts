@@ -22,6 +22,10 @@ export interface Candidate {
   attribution: string;
 }
 export interface Provider {
+  generateGuidedLoop?(
+    coordinates: [number, number][],
+    signal: AbortSignal,
+  ): Promise<Candidate>;
   generateRoundTrip(
     request: RouteRequest,
     seed: number,
@@ -29,9 +33,9 @@ export interface Provider {
   ): Promise<Candidate>;
 }
 export const defaults = {
-  candidates: 6,
+  candidates: 8,
   concurrency: 2,
-  maxAttempts: 8,
+  maxAttempts: 16,
   deadlineMs: 20000,
   snapMetres: 50,
   preferredError: 0.05,
@@ -45,7 +49,6 @@ export const defaults = {
     reversal: 2,
     flatAscent: 2,
     flatSteep: 40,
-    balancedAscent: 0.3,
     hillyAscent: 1,
     hillyCap: 60,
   },
@@ -255,6 +258,57 @@ async function bounded<T>(
     signal.removeEventListener("abort", listener);
   }
 }
+/** Start is the near end of an elongated ellipse; bearing selects its far end.
+ * The four straight legs have perimeter target before street-network detours.
+ */
+export function guidedWaypoints(
+  request: RouteRequest,
+  direction: number,
+  seed: number,
+  scale = 1,
+  bearingOffsetDegrees = 0,
+): [number, number][] {
+  const jitter = (((seed >>> 0) / 4294967295 - 0.5) * Math.PI) / 36;
+  const bearing =
+    (direction * Math.PI) / 4 + jitter + (bearingOffsetDegrees * Math.PI) / 180;
+  const major =
+    (request.distanceMetres / (4 * Math.sqrt(1 + 0.45 ** 2))) * scale;
+  const minor = major * 0.45;
+  const origin: [number, number] = [
+    request.start.longitude,
+    request.start.latitude,
+  ];
+  // Spherical destinations remain valid near poles and across the date line.
+  const destination = (forward: number, across: number): [number, number] => {
+    const east = forward * Math.sin(bearing) + across * Math.cos(bearing);
+    const north = forward * Math.cos(bearing) - across * Math.sin(bearing);
+    const angle = Math.atan2(east, north),
+      arc = Math.hypot(east, north) / 6371000;
+    const lat = (origin[1] * Math.PI) / 180,
+      lon = (origin[0] * Math.PI) / 180;
+    const latitude = Math.asin(
+      Math.sin(lat) * Math.cos(arc) +
+        Math.cos(lat) * Math.sin(arc) * Math.cos(angle),
+    );
+    const longitude =
+      lon +
+      Math.atan2(
+        Math.sin(angle) * Math.sin(arc) * Math.cos(lat),
+        Math.cos(arc) - Math.sin(lat) * Math.sin(latitude),
+      );
+    return [
+      (((longitude * 180) / Math.PI + 540) % 360) - 180,
+      (latitude * 180) / Math.PI,
+    ];
+  };
+  return [
+    origin,
+    destination(major, minor),
+    destination(2 * major, 0),
+    destination(major, -minor),
+    [...origin],
+  ];
+}
 export async function generate(
   request: RouteRequest,
   provider: Provider,
@@ -272,72 +326,164 @@ export async function generate(
     attempts = 0,
     rejected = 0,
     stop = false;
+  const guided = provider.generateGuidedLoop?.bind(provider);
+  const candidateCount = guided
+    ? config.candidates
+    : Math.min(config.candidates, 6);
+  const attemptLimit = guided
+    ? config.maxAttempts
+    : Math.min(config.maxAttempts, 8);
+  const canCall = () =>
+    !stop && !controller.signal.aborted && attempts < attemptLimit;
+  const enoughTime = () => Date.now() - started < config.deadlineMs - 500;
+  const failureFor = (e: unknown) =>
+    e instanceof ServiceError
+      ? e
+      : new ServiceError(
+          controller.signal.aborted ? 504 : 502,
+          controller.signal.aborted ? "DEADLINE_EXCEEDED" : "UPSTREAM_FAILURE",
+          "Route generation could not finish.",
+        );
+  const recordFailure = (error: unknown) => {
+    const failure = failureFor(error);
+    failures.push(failure);
+    if (
+      ["PROVIDER_AUTH", "SERVICE_CONFIGURATION"].includes(failure.code) ||
+      failure.status === 429 ||
+      failure.retryAfter !== undefined
+    )
+      stop = true;
+    return failure;
+  };
+  const accept = (candidate: Candidate) => {
+    const result = analyse(candidate, request, config);
+    if (result) {
+      results.push(result);
+      attributions.add(candidate.attribution);
+    } else rejected++;
+  };
   try {
-    await Promise.all(
-      Array.from({ length: config.concurrency }, async () => {
-        while (
-          next < config.candidates &&
-          !controller.signal.aborted &&
-          !stop
-        ) {
-          const index = next++;
-          const derived = (seed + Math.imul(index, 2654435761)) >>> 0;
-          for (
-            let retry = 0;
-            retry < 2 &&
-            (retry === 0 || Date.now() - started < config.deadlineMs - 500) &&
-            !stop &&
-            !controller.signal.aborted &&
-            attempts < config.maxAttempts;
-            retry++
-          ) {
-            attempts++;
-            try {
-              const candidate = await bounded(
-                provider.generateRoundTrip(request, derived, controller.signal),
-                controller.signal,
-              );
-              const result = analyse(candidate, request, config);
-              if (result) {
-                results.push(result);
-                attributions.add(candidate.attribution);
-              } else rejected++;
-              break;
-            } catch (e) {
-              const failure =
-                e instanceof ServiceError
-                  ? e
-                  : new ServiceError(
-                      controller.signal.aborted ? 504 : 502,
-                      controller.signal.aborted
-                        ? "DEADLINE_EXCEEDED"
-                        : "UPSTREAM_FAILURE",
-                      "Route generation could not finish.",
-                    );
-              failures.push(failure);
-              if (
-                failure.code === "PROVIDER_AUTH" ||
-                failure.code === "SERVICE_CONFIGURATION" ||
-                failure.status === 429 ||
-                failure.retryAfter !== undefined
-              )
-                stop = true;
-              if (
-                failure.retryAfter !== undefined ||
-                failure.status < 500 ||
-                failure.status === 504 ||
-                failure.code === "PROVIDER_AUTH" ||
-                failure.code === "UPSTREAM_INVALID" ||
-                failure.code === "UPSTREAM_REJECTED" ||
-                failure.code === "SERVICE_CONFIGURATION" ||
-                retry === 1
-              )
+    if (guided) {
+      const probes: { index: number; candidate: Candidate }[] = [];
+      const runPhase = async <T>(
+        jobs: T[],
+        run: (job: T) => Promise<void>,
+        refinement = false,
+      ) => {
+        let cursor = 0;
+        await Promise.all(
+          Array.from({ length: config.concurrency }, async () => {
+            while (
+              cursor < jobs.length &&
+              canCall() &&
+              (!refinement || enoughTime())
+            ) {
+              const job = jobs[cursor++];
+              attempts++;
+              try {
+                await run(job);
+              } catch (error) {
+                recordFailure(error);
+              }
+            }
+          }),
+        );
+      };
+      await runPhase(
+        Array.from({ length: candidateCount }, (_, index) => index),
+        async (index) => {
+          const candidate = await bounded(
+            guided(guidedWaypoints(request, index, seed), controller.signal),
+            controller.signal,
+          );
+          // Raw distance/ascent can guide exploration even if the loop misses tolerance.
+          if (Number.isFinite(candidate.distance) && candidate.distance > 0)
+            probes.push({ index, candidate });
+          accept(candidate);
+        },
+      );
+      const explorationScore = ({ candidate }: (typeof probes)[number]) => {
+        const error =
+          Math.abs(candidate.distance - request.distanceMetres) /
+          request.distanceMetres;
+        if (request.hillPreference === "balanced") return error;
+        if (!Number.isFinite(candidate.ascent) || candidate.ascent! < 0)
+          return Infinity;
+        const climb = candidate.ascent! / (candidate.distance / 1000);
+        return request.hillPreference === "flat" ? climb : -climb;
+      };
+      const promising = probes
+        .sort(
+          (a, b) =>
+            explorationScore(a) - explorationScore(b) || a.index - b.index,
+        )
+        .slice(0, 2);
+      // Interleave the two neighbourhoods so reduced budgets still explore both.
+      const jobs = [-20, -7, 7, 20].flatMap((offset) =>
+        promising.map((probe) => ({ probe, offset })),
+      );
+      await runPhase(
+        jobs,
+        async ({ probe, offset }) => {
+          const scale = Math.max(
+            0.5,
+            Math.min(1.5, request.distanceMetres / probe.candidate.distance),
+          );
+          const candidate = await bounded(
+            guided(
+              guidedWaypoints(request, probe.index, seed, scale, offset),
+              controller.signal,
+            ),
+            controller.signal,
+          );
+          accept(candidate);
+        },
+        true,
+      );
+    } else {
+      await Promise.all(
+        Array.from({ length: config.concurrency }, async () => {
+          while (next < candidateCount && canCall()) {
+            const index = next++,
+              derived = (seed + Math.imul(index, 2654435761)) >>> 0;
+            for (
+              let retry = 0;
+              retry < 2 && canCall() && (retry === 0 || enoughTime());
+              retry++
+            ) {
+              attempts++;
+              try {
+                accept(
+                  await bounded(
+                    provider.generateRoundTrip(
+                      request,
+                      derived,
+                      controller.signal,
+                    ),
+                    controller.signal,
+                  ),
+                );
                 break;
+              } catch (error) {
+                const failure = recordFailure(error);
+                if (
+                  failure.retryAfter !== undefined ||
+                  failure.status < 500 ||
+                  failure.status === 504 ||
+                  [
+                    "PROVIDER_AUTH",
+                    "SERVICE_CONFIGURATION",
+                    "UPSTREAM_INVALID",
+                    "UPSTREAM_REJECTED",
+                  ].includes(failure.code)
+                )
+                  break;
+              }
             }
           }
-        }
-      }),
-    );
+        }),
+      );
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -369,19 +515,11 @@ export async function generate(
           ? ascent * w.flatAscent + r.steep * w.flatSteep
           : request.hillPreference === "hilly"
             ? -Math.min(ascent, w.hillyCap) * w.hillyAscent
-            : ascent * w.balancedAscent)
+            : 0)
     );
   };
   pool.sort(
-    (a, b) =>
-      Number(
-        Math.abs(a.route.distanceErrorPercent) > config.preferredError * 100,
-      ) -
-        Number(
-          Math.abs(b.route.distanceErrorPercent) > config.preferredError * 100,
-        ) ||
-      score(a) - score(b) ||
-      a.route.id.localeCompare(b.route.id),
+    (a, b) => score(a) - score(b) || a.route.id.localeCompare(b.route.id),
   );
   const selected: Scored[] = [];
   for (const r of pool)
