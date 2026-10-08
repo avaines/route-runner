@@ -33,9 +33,9 @@ Use a compatible supported runtime and pin tool/provider versions at implementat
 
 ## Scope
 
-MVP includes choosing a start by browser location or map pin, preset/custom distance, a hill preference, candidate generation, up to three distinct route choices, kilometre markers, elevation profile, regenerate and browser favourites. Manual map placement must work when geolocation permission is denied. A map search box is optional: it introduces a separate geocoding/Places integration and should not block the first version.
+MVP includes choosing a start by browser location or map pin, up to three ordered route-shaping waypoints, preset/custom distance, a hill preference, candidate generation, up to three distinct route choices, kilometre markers, elevation profile, regenerate and browser favourites. Manual map placement must work when geolocation permission is denied. A map search box is optional: it introduces a separate geocoding/Places integration and should not block the first version.
 
-Exclude accounts, cloud synchronisation, GPX export, Watch integration, live location tracking during runs, spoken directions, automatic rerouting, manual waypoint editing and offline satellite maps. Opening a route in Apple/Google Maps is a later experiment: destinations or waypoints may cause those apps to recalculate the path. Do not label such a link as preserving the exact generated route until verified.
+Exclude accounts, cloud synchronisation, GPX export, Watch integration, live location tracking during runs, spoken directions, automatic rerouting and offline satellite maps. Opening a route in Apple/Google Maps is a later experiment: destinations or waypoints may cause those apps to recalculate the path. Do not label such a link as preserving the exact generated route until verified.
 
 ## User experience
 
@@ -97,7 +97,7 @@ Use JSON schemas or equivalent runtime validation as the authoritative shared co
 }
 ```
 
-`hillPreference` is `flat`, `balanced` or `hilly`. `seed` is an optional non-negative 32-bit integer; generate one if omitted and echo it in the response. The user cannot choose provider URLs, candidate counts, concurrency or unrestricted provider options.
+`hillPreference` is `flat`, `balanced` or `hilly`. `seed` is an optional non-negative 32-bit integer; generate one if omitted and echo it in the response. The user cannot choose provider URLs, candidate counts, concurrency or unrestricted provider options. Optional `waypoints` contains up to three ordered `{ "latitude": number, "longitude": number }` objects using the same coordinate limits as `start`. Omitted or empty waypoints preserve automatic generation. User anchors remain fixed during guided-loop scaling, and every returned route must pass within the configured snapping tolerance of them in order. Unsatisfiable anchors return no usable route; providers without guided support return 422 instead of ignoring them.
 
 Proposed validation: finite latitude [-90,90], longitude [-180,180], integer distance 1000–30000 metres, request body at most 8 KiB, correct content type, supported enum values and no unexpected fields. Convert custom kilometres to integer metres in the frontend. Limits are configuration and must match frontend/backend validation.
 

@@ -117,6 +117,17 @@ export function analyse(
     metres(c[0], c.at(-1)!) > config.snapMetres
   )
     return null;
+  // ORS should route via the anchors in order, with the same snapping allowance as start.
+  let waypointIndex = 0;
+  for (const point of request.waypoints ?? []) {
+    const coordinate = [point.longitude, point.latitude];
+    while (
+      waypointIndex < c.length &&
+      metres(c[waypointIndex], coordinate) > config.snapMetres
+    )
+      waypointIndex++;
+    if (waypointIndex === c.length) return null;
+  }
   const lengths = [0];
   for (let i = 1; i < c.length; i++)
     lengths.push(lengths[i - 1] + metres(c[i - 1], c[i]));
@@ -301,13 +312,51 @@ export function guidedWaypoints(
       (latitude * 180) / Math.PI,
     ];
   };
-  return [
-    origin,
+  const generated = [
     destination(major, minor),
     destination(2 * major, 0),
     destination(major, -minor),
-    [...origin],
   ];
+  const via: [number, number][] = (request.waypoints ?? []).map((point) => [
+    point.longitude,
+    point.latitude,
+  ]);
+  if (!via.length) return [origin, ...generated, [...origin]];
+  // At most20 ordered interleavings for three generated and three user anchors.
+  // Keep both orders and select the smallest added straight-line detour.
+  let best: [number, number][] = [],
+    bestDistance = Infinity;
+  const visit = (
+    g: number,
+    v: number,
+    points: [number, number][],
+    distance: number,
+  ) => {
+    if (g === generated.length && v === via.length) {
+      const total = distance + metres(points.at(-1)!, origin);
+      if (total < bestDistance) {
+        bestDistance = total;
+        best = [...points, [...origin]];
+      }
+      return;
+    }
+    if (g < generated.length)
+      visit(
+        g + 1,
+        v,
+        [...points, generated[g]],
+        distance + metres(points.at(-1)!, generated[g]),
+      );
+    if (v < via.length)
+      visit(
+        g,
+        v + 1,
+        [...points, via[v]],
+        distance + metres(points.at(-1)!, via[v]),
+      );
+  };
+  visit(0, 0, [origin], 0);
+  return best;
 }
 export async function generate(
   request: RouteRequest,
@@ -441,6 +490,12 @@ export async function generate(
         true,
       );
     } else {
+      if (request.waypoints?.length)
+        throw new ServiceError(
+          422,
+          "WAYPOINTS_UNSUPPORTED",
+          "This routing provider cannot shape routes through waypoints.",
+        );
       await Promise.all(
         Array.from({ length: config.concurrency }, async () => {
           while (next < candidateCount && canCall()) {

@@ -43,3 +43,12 @@ quota/terms and latency remain release checks. The provider adapter uses the fix
 guided closed waypoint loops, elevation=true, instructions=false. Round-trip
 length/points/seed remain supported for fallback providers. Surface tags and
 road summaries are intentionally not assumed available.
+
+Route shaping accepts optional `waypoints` (up to three ordered latitude/longitude
+objects). Guided requests merge these fixed anchors with generated loop points,
+preserving order and exact start/finish closure. Scaling changes only generated
+points. Returned routes must visit every anchor in order within the same 50 m
+snapping tolerance used for the start; impossible constraints return no usable
+route. A provider without guided support returns 422 instead of ignoring anchors.
+No waypoint coordinates are logged. Omitting waypoints or sending an empty list
+preserves automatic route generation.

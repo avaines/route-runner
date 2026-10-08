@@ -66,6 +66,17 @@ components:
           properties:
             latitude: { type: number, minimum: -90, maximum: 90 }
             longitude: { type: number, minimum: -180, maximum: 180 }
+        waypoints:
+          type: array
+          maxItems: 3
+          description: Optional ordered via points. Empty preserves automatic loop generation. Points stay fixed during route shaping and snap to nearby pedestrian paths.
+          items:
+            type: object
+            additionalProperties: false
+            required: [latitude, longitude]
+            properties:
+              latitude: { type: number, minimum: -90, maximum: 90 }
+              longitude: { type: number, minimum: -180, maximum: 180 }
         distanceMetres: { type: integer, minimum: 1000, maximum: 30000 }
         hillPreference: { type: string, enum: [flat, balanced, hilly] }
         seed: { type: integer, minimum: 0, maximum: 4294967295 }

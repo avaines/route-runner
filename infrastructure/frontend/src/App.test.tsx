@@ -89,3 +89,31 @@ test("unsupported favourite schema is explained and preserved", async () => {
     JSON.parse(localStorage.getItem("route-runner:favourites")!).version,
   ).toBe(99);
 });
+
+test("run-via coordinates trigger rerouting and removal removes the constraint", async () => {
+  vi.mocked(generateRoutes).mockImplementation(async (request) =>
+    fixtureResponse(request),
+  );
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: /Find my routes/ }));
+  await screen.findByText("3 ways to make it home");
+  await userEvent.click(screen.getByText("Enter run-via coordinates"));
+  await userEvent.type(screen.getByLabelText("Run-via latitude"), "53.81");
+  await userEvent.type(screen.getByLabelText("Run-via longitude"), "-1.54");
+  await userEvent.click(
+    screen.getByRole("button", { name: "Add these coordinates" }),
+  );
+  await waitFor(() =>
+    expect(vi.mocked(generateRoutes).mock.calls.at(-1)?.[0].waypoints).toEqual([
+      { latitude: 53.81, longitude: -1.54 },
+    ]),
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "Remove run-via marker 1" }),
+  );
+  await waitFor(() =>
+    expect(
+      vi.mocked(generateRoutes).mock.calls.at(-1)?.[0].waypoints,
+    ).toBeUndefined(),
+  );
+});
