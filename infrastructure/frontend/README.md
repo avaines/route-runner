@@ -24,3 +24,7 @@ Live Google rendering, provider storage/attribution terms and CloudFront signing
 ## Build note
 
 The locked Rollup 4.64.0 stalls while tree-shaking this module graph (reproduced on Node 22.5.1, 22.22.0 and 24.1.0). `vite.config.ts` temporarily disables tree-shaking; production bundling and minification remain enabled. The current production JavaScript is approximately 207 kB (66 kB gzip), plus an unloaded 1 kB synthetic fixture chunk. Remove the workaround only after an upstream upgrade builds successfully with tree-shaking restored. Dependency audit reports zero known vulnerabilities at implementation time.
+
+## Shaping a route
+
+Use “Add run-via marker” then click the map, click the selected route, or drag one of its bounded editing handles. Via markers can be dragged individually or removed in the control panel. Up to three markers are sent in path order as `waypoints`; each change reroutes through the API. Dense provider geometry is never directly editable, and dragging a handle does not translate the entire route. The full returned geometry remains authoritative. Marker positions visually snap to the returned path after success while original requested coordinates are retained for subsequent requests and favourites. Failed edits preserve the last successful route and explain the error. Coordinate entry offers an accessible alternative without a Google key. Google interaction behaviour still needs live-key validation.

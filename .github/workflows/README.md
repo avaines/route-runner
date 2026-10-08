@@ -1,53 +1,77 @@
-# Checks and deployment
+# Checks, deployment and dev cleanup
 
-CI runs package checks/builds and Terraform validation without AWS credentials.
-Deployment is **manual only**, from `main`, and supports dev only. The plan job
-builds an immutable release, saves a binary plan and human-readable review, then
-the protected `dev` environment gates applying that exact plan. Never approve an
-unreviewed plan. A changed state requires another run; do not replace its plan.
+| Event | Action |
+| --- | --- |
+| Same-repository PR to main opened, reopened or updated | Build, plan and deploy dev |
+| Push to main | Build, plan and deploy prod |
+| Manual deploy | Choose dev or prod |
+| Same-repository PR merged into main | Destroy dev application infrastructure; retain both SSM keys |
+| PR closed without merging, or fork PR | No cloud deployment or cleanup |
+| Manual destroy-dev | Requires typing `confirm`; always dev |
 
-Before dispatching, configure GitHub environments:
+CI runs package checks/builds, dev Terraform
+validation without AWS credentials. Cloud jobs use OIDC. Dev deploy and cleanup
+share `route-runner-dev` concurrency and do not interrupt an active Terraform run.
+A queued PR deploy rechecks whether the PR is still open before building, so a
+closed PR does not recreate dev after cleanup. Dev is one shared environment,
+not one environment per PR: merging one PR tears down the shared dev app.
 
-- `dev-plan`: plan-only OIDC role in secret `AWS_ROLE_ARN`, including state
-  locking/read and infrastructure describe permissions.
-- `dev`: deployment OIDC role in secret `AWS_ROLE_ARN`; **require reviewers** and
-  restrict deployment branches to `main`. Without reviewers GitHub does not pause.
-- Both: variables `AWS_REGION`, `AWS_ACCOUNT_ID` (the intended account). Plan:
-  `TF_VARS_JSON`, containing non-secret Terraform environment configuration, and
-  `GOOGLE_MAPS_PARAMETER_NAME`, containing the Terraform `google_maps_parameter_name` output. The plan role needs `ssm:GetParameter` on that parameter. The workflow retrieves and masks the key before building.
+## GitHub setup
 
-OIDC trust must scope `aud` to `sts.amazonaws.com` and `sub` to the actual
-`repo:OWNER/REPO:environment:dev-plan` or `:environment:dev`. Bootstrap these roles
-and the encrypted, locking state backend separately. No long-lived AWS keys.
-Restrict IAM permissions to this environment; deployment also needs Lambda, S3
-uploads and CloudFront invalidation. The backend and local dev.auto.tfvars are
-operator-owned; the latter is ignored and therefore CI needs TF_VARS_JSON.
+Configure `dev-plan` and `dev` for current development. Production infrastructure
+is intentionally absent; the prod selector and main-push job remain placeholders
+and are expected to fail until a release is agreed. `prod-plan` and `prod` setup
+below applies only to that future release:
 
-Example non-secret TF_VARS_JSON shape (substitute confirmed values):
+- Each has secret `AWS_ROLE_ARN` and variables `AWS_REGION`, `AWS_ACCOUNT_ID`.
+- Plan environments need access to the existing `VITE_GOOGLE_MAPS_API_KEY` GitHub Actions secret.
+- Plan roles need state read and locking and infrastructure describe permissions.
+- Deploy roles need infrastructure write permissions. Dev also needs teardown
+  permissions, including deletion of all versions in the frontend bucket.
+- Configure required reviewers on `prod` to review the uploaded saved plan before
+  it is applied. Dev reviewers are optional; omit them for automatic PR deployment
+  and merge cleanup. Restrict prod/prod-plan branches to main; permit same-repository
+  PR deployments in dev/dev-plan.
 
-```json
-{"environment":"dev","aws_account_id":"YOUR_ACCOUNT_ID","region":"YOUR_REGION","alert_email":"YOUR_EMAIL"}
-```
+Scope OIDC trust to the actual repository and each environment, e.g.
+`repo:OWNER/REPO:environment:dev`, with audience `sts.amazonaws.com`.
+No long-lived AWS access keys are required. Terraform loads committed non-secret
+`dev.auto.tfvars` and `prod.auto.tfvars` from their respective environment folders.
+No `TF_VARS_JSON` GitHub variable or generated tfvars file is needed. Production
+infrastructure remains unimplemented until a release is agreed.
 
-Builds include the Lambda zip and frontend; artifacts last 30 days. Keep the last
-successful release and retain artifacts externally if longer rollback is needed.
-S3 versioning preserves HTML versions and uploads never delete old hashed assets.
-To roll back, download the previous successful release, use its Lambda zip as the
-new deployment input, review a fresh Terraform plan, then restore its frontend
-assets followed by index.html and invalidate `/` and `/index.html`. Never apply an
-old saved plan to roll back infrastructure. Terraform publishes Lambda versions
-but currently uses `$LATEST` for the URL. Rollback and origin-access smoke checks
-must be demonstrated in dev before release.
+## API keys
 
-Plans can contain infrastructure metadata: keep artifact/repository access scoped.
-No routing key belongs in GitHub variables, build variables, or Terraform inputs;
-populate the Terraform-created SSM Parameter Store SecureString using the
-`routing_parameter_name` output, with the default `aws/ssm` encryption key. Confirm the SNS email
-subscription. Configure billing alerts separately using user-approved thresholds.
+Terraform creates both SSM SecureString parameters with `UNSET` placeholders.
+Populate both with plain API keys manually after initial provisioning. Both have
+`prevent_destroy = true` and preserve manual value changes.
 
-First deployment: build the Lambda and provision the infrastructure through a
-reviewed local Terraform plan/apply, then populate both SSM parameters. The
-application workflow requires the Google parameter to exist and contain a real
-key before it can build. Ordinary CI remains keyless. The browser key appears
-in the published bundle by design; restrict it to Maps JavaScript API and the
-allowed website referrers.
+The frontend build uses `${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}` directly. Both keys
+are already available as GitHub Actions secrets and in AWS SSM; CI does not copy,
+fetch or populate them in SSM. It does not need the routing key for offline tests
+or packaging. Deployed Lambda reads the routing key from SSM. Local development
+uses `.env.local`.
+
+A full destroy plan is blocked by `prevent_destroy` once the parameters exist;
+the cleanup workflow does not bypass that protection.
+
+Cleanup first updates the existing dev bucket's `force_destroy` flag with a targeted
+saved plan, then removes application infrastructure using a saved destroy plan.
+This handles buckets from earlier builds where the flag was false and ensures
+object versions/delete markers do not block teardown. Production defaults to
+`force_destroy=false` and has no destroy workflow. No teardown is executed locally
+as part of validating these workflow files.
+
+## Plans, publishing and rollback
+
+The plan job uploads the binary plan, readable plan, Lambda zip, frontend build. The deploy job applies that exact plan and
+uploads immutable assets before index.html. It never deletes old assets during
+normal deployment. Artifacts are retained for 30 days; save successful releases
+externally for longer retention. Plans contain infrastructure metadata, so restrict
+artifact access. A stale plan requires a fresh workflow run.
+
+For rollback, use the previous successful Lambda package as input to a fresh
+reviewed Terraform plan, then publish that release's frontend assets and HTML and
+invalidate `/` and `/index.html`. Do not apply an old saved plan to roll back.
+Rollback, CloudFront signing, origin access and live merge cleanup still need
+verification in the configured GitHub/AWS environment.

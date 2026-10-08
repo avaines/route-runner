@@ -10,6 +10,7 @@ resource "aws_ssm_parameter" "google_maps" {
   tags             = local.default_tags
 
   lifecycle {
-    ignore_changes = [value_wo_version]
+    prevent_destroy = true
+    ignore_changes  = [value_wo_version]
   }
 }

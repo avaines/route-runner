@@ -52,10 +52,6 @@ variable "route53_zone_id" {
   default     = null
 }
 
-variable "enable_custom_domain" {
-  type    = bool
-  default = false
-}
 variable "lambda_reserved_concurrency" {
   type    = number
   default = 2
@@ -63,4 +59,10 @@ variable "lambda_reserved_concurrency" {
 variable "api_environment" {
   type    = map(string)
   default = {}
+}
+
+variable "frontend_bucket_force_destroy" {
+  type        = bool
+  description = "Allow ephemeral dev teardown to remove frontend object versions."
+  default     = true
 }

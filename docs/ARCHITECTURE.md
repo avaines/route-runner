@@ -49,8 +49,8 @@ Provider storage permissions must be confirmed before releasing favourites with
 live route data.
 
 API responses are not cached. Routine backend logs must omit coordinates,
-geometry, bodies, credentials and raw upstream responses. Infrastructure creates one SecureString parameter with a write-only UNCONFIGURED placeholder.
-The operator supplies its real value outside Terraform so the credential never enters state.
+geometry, bodies, credentials and raw upstream responses. Terraform creates both SecureString parameters with prevent_destroy protection.
+The operator populates their plain values manually; CI does not write them.
 
 ## Development and release
 
@@ -62,8 +62,9 @@ route quality or performance targets can be accepted.
 
 The initial hosting target is the CloudFront hostname. Custom DNS is optional.
 Existing environment configuration determines the deployment region; the S3
-state bucket's region does not determine it. Deployment requires a reviewed
-infrastructure plan and operator-controlled execution. Static hashed assets are
+state bucket's region does not determine it. Deployment uses a saved infrastructure plan. Same-repository PRs deploy dev;
+merge cleanup removes dev infrastructure while retaining API-key parameters.
+Pushes to main deploy prod; manual runs can select either environment. Static hashed assets are
 retained so earlier HTML continues to work and rollback remains possible.
 
 See [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for the provider experiment,

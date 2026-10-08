@@ -580,3 +580,22 @@ footer span {
   padding: 5px 8px;
   border-radius: 5px;
 }
+.via-controls > button {
+  width: 100%;
+  font-size: 12px;
+}
+.via-controls [aria-pressed="true"] {
+  background: #d8f77b;
+}
+.via-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 10px;
+}
+.via-item button {
+  font-size: 10px;
+  padding: 5px;
+}

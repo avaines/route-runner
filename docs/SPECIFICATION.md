@@ -33,9 +33,9 @@ Use a compatible supported runtime and pin tool/provider versions at implementat
 
 ## Scope
 
-MVP includes choosing a start by browser location or map pin, preset/custom distance, a hill preference, candidate generation, up to three distinct route choices, kilometre markers, elevation profile, regenerate and browser favourites. Manual map placement must work when geolocation permission is denied. A map search box is optional: it introduces a separate geocoding/Places integration and should not block the first version.
+MVP includes choosing a start by browser location or map pin, up to three ordered route-shaping waypoints, preset/custom distance, a hill preference, candidate generation, up to three distinct route choices, kilometre markers, elevation profile, regenerate and browser favourites. Manual map placement must work when geolocation permission is denied. A map search box is optional: it introduces a separate geocoding/Places integration and should not block the first version.
 
-Exclude accounts, cloud synchronisation, GPX export, Watch integration, live location tracking during runs, spoken directions, automatic rerouting, manual waypoint editing and offline satellite maps. Opening a route in Apple/Google Maps is a later experiment: destinations or waypoints may cause those apps to recalculate the path. Do not label such a link as preserving the exact generated route until verified.
+Exclude accounts, cloud synchronisation, GPX export, Watch integration, live location tracking during runs, spoken directions, automatic rerouting and offline satellite maps. Opening a route in Apple/Google Maps is a later experiment: destinations or waypoints may cause those apps to recalculate the path. Do not label such a link as preserving the exact generated route until verified.
 
 ## User experience
 
@@ -97,7 +97,7 @@ Use JSON schemas or equivalent runtime validation as the authoritative shared co
 }
 ```
 
-`hillPreference` is `flat`, `balanced` or `hilly`. `seed` is an optional non-negative 32-bit integer; generate one if omitted and echo it in the response. The user cannot choose provider URLs, candidate counts, concurrency or unrestricted provider options.
+`hillPreference` is `flat`, `balanced` or `hilly`. `seed` is an optional non-negative 32-bit integer; generate one if omitted and echo it in the response. The user cannot choose provider URLs, candidate counts, concurrency or unrestricted provider options. Optional `waypoints` contains up to three ordered `{ "latitude": number, "longitude": number }` objects using the same coordinate limits as `start`. Omitted or empty waypoints preserve automatic generation. User anchors remain fixed during guided-loop scaling, and every returned route must pass within the configured snapping tolerance of them in order. Unsatisfiable anchors return no usable route; providers without guided support return 422 instead of ignoring them.
 
 Proposed validation: finite latitude [-90,90], longitude [-180,180], integer distance 1000–30000 metres, request body at most 8 KiB, correct content type, supported enum values and no unexpected fields. Convert custom kilometres to integer metres in the frontend. Limits are configuration and must match frontend/backend validation.
 
@@ -145,19 +145,19 @@ An optional `GET /api/health` checks process responsiveness without contacting t
 
 ## Candidate generation and ranking
 
-First implement a provider adapter with `generateRoundTrip(start, distance, seed, deadline)`. Use openrouteservice pedestrian round-trip routing and request elevation. Its documented round-trip options include length, points and seed; elevation and additional route details are available, subject to endpoint/profile compatibility. These must be tested together against the live hosted service before finalising requests. [3]
+The provider adapter supports both seeded round trips and pedestrian routes through server-generated waypoints. Use openrouteservice pedestrian routing and request elevation. The guided strategy is preferred because live regression showed that random round trips can miss a narrow, low-gradient corridor even when the pedestrian graph contains it. [3]
 
 Proposed per-request pipeline:
 
 1. Validate and normalise input; create an overall deadline and request ID.
-2. Request up to six candidate loops with deterministic derived seeds; limit concurrent upstream calls to two.
+2. Probe up to eight evenly spaced loop directions, then use the remaining request budget around the two directions most promising for the selected hill preference. Correct waypoint scale from the observed network distance and limit concurrent upstream calls to two.
 3. Validate provider geometry, distances and elevation. Reject non-finite or malformed outputs and paths that fail to return near the start.
 4. Compute quality metrics and remove duplicate or effectively identical loops.
-5. Prefer candidates within 5% of requested distance. If needed, allow up to 10% with a visible warning. Reject candidates outside 10% in MVP and offer regeneration or a different target.
+5. Rank distance error continuously so a small threshold crossing cannot override a material terrain difference. Warn above 5% and reject candidates outside 10% in MVP.
 6. Rank remaining candidates using the selected hill preference and quality penalties; select up to three with diversity between them.
 7. Return partial results if some provider calls fail, subject to the deadline.
 
-Do not retry every failed candidate blindly. At most one bounded retry for a transient failure when time remains, respecting Retry-After; no retries for invalid input or authentication failure. Count retries against an absolute ceiling of eight upstream attempts. These are initial tunable limits, not a provider throughput promise.
+Guided discovery permits eight coarse probes and eight focused neighbourhood probes: 16 actual upstream calls maximum, concurrency two and one shared deadline. Every call consumes this budget. Providers without guided routing retain six seeded candidates and an eight-attempt ceiling, including at most one bounded transient retry per candidate. Do not retry authentication failures, invalid requests or throttling, and respect Retry-After. These are tunable application limits, not a provider throughput promise.
 
 ### Quality metrics
 
@@ -167,7 +167,7 @@ Use provider ascent/descent where trustworthy; derive sustained gradients from a
 
 Detect repeated sections using matched/quantised road segments with spatial tolerance, not raw coordinate equality. Intentional short shared access to the start is acceptable. Initial soft penalty above 15% repeated distance and rejection above 40%; revise using local results. Deduplicate loops even if travelled in the opposite direction. Preserve several genuinely different alternatives rather than selecting only the top near-identical routes.
 
-Ranking should use explicit, configurable penalties and stable tie-breaking. For `flat`, give the highest terrain penalty to ascent and sustained steep uphill sections. For `balanced`, favour distance accuracy, low repetition and moderate climbing. For `hilly`, prefer ascent while limiting repetition and distance error; cap the climbing reward so an excessive detour cannot win. Record the scoring formula and weights in code/documentation after calibration; arbitrary initial weights are not a validated model.
+Ranking uses explicit, configurable penalties and stable tie-breaking. For `flat`, give the highest terrain penalty to ascent and sustained steep uphill sections. For `balanced`, favour distance accuracy, low repetition and route shape without monotonically pushing results toward the flattest option. For `hilly`, prefer ascent while limiting repetition and distance error; cap the climbing reward so an excessive detour cannot win. Record the scoring formula and weights in code/documentation after calibration; arbitrary initial weights are not a validated model.
 
 Hill preferences are relative rankings among generated routes. This does not find the globally flattest loop or guarantee a requested amount of climbing. If elevation is unavailable for all candidates, return usable distance-based routes with a clear warning that the hill preference could not be applied. Exclude unknown-elevation candidates from terrain comparison when sufficient known-elevation options exist.
 
@@ -177,7 +177,7 @@ Footpath connectivity, access and surfaces depend on map data. Do not infer pave
 
 Keep behaviour parameterised. Use production-suitable defaults, with explicit overrides for smaller test environments; avoid `if prod then` logic. Configuration includes distance limits, candidate/attempt counts, upstream concurrency, deadlines, distance tolerances, snapping tolerance, overlap thresholds and ranking weights.
 
-Store the routing credential as an SSM Parameter Store SecureString and fetch/cache it in the Lambda execution environment with a refresh strategy. Terraform creates the parameter with a write-only UNCONFIGURED placeholder (the real value is the plain API key, not JSON) and a scoped access policy. Populate the real value outside Terraform through an authorised parameter-management step; keep the write-only version unchanged so later applies preserve operator updates. Never pass the credential through an ordinary Terraform value that leaks into state. Use the default aws/ssm encryption key initially. Grant only ssm:GetParameter access to the specific parameter and logging permissions. Backend secrets must never enter Vite variables or frontend bundles.
+Store the routing credential as an SSM Parameter Store SecureString and fetch/cache it in the Lambda execution environment with a refresh strategy. Terraform creates both parameters with write-only UNSET placeholders and prevent_destroy lifecycle protection. The operator populates plain API keys manually; CI uses the existing Google Maps GitHub secret directly for the frontend build and never reads or populates either SSM value. A full destroy plan is blocked by the protected resources. Use the default aws/ssm encryption key initially. Grant only ssm:GetParameter access to the specific parameter and logging permissions. Backend secrets must never enter Vite variables or frontend bundles.
 
 The Google browser key is intentionally public. Restrict it by website referrers and required APIs, use separate local-development restrictions, set quotas, and enable billing alerts. Google Maps JavaScript API requires enabled billing; confirm the applicable pricing before release. [4][5]
 

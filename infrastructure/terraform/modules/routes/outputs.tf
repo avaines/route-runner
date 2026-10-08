@@ -1,6 +1,6 @@
 output "portal_bucket" { value = aws_s3_bucket.frontend.id }
 output "cloudfront_distribution_id" { value = aws_cloudfront_distribution.app.id }
-output "application_url" { value = "https://${aws_cloudfront_distribution.app.domain_name}" }
+output "application_url" { value = "https://${local.domain_name}" }
 output "lambda_function_name" { value = aws_lambda_function.api.function_name }
 output "routing_parameter_name" { value = aws_ssm_parameter.routing.name }
 output "routing_parameter_arn" { value = aws_ssm_parameter.routing.arn }

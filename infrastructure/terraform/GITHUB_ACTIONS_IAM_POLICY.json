@@ -27,10 +27,10 @@
                 "s3:*"
             ],
             "Resource": [
-                "arn:aws:s3:::804221019544-us-east-1-dev-route-runner-*",
-                "arn:aws:s3:::804221019544-us-east-1-dev-route-runner-*/*",
-                "arn:aws:s3:::804221019544-us-east-1-prod-route-runner-*",
-                "arn:aws:s3:::804221019544-us-east-1-prod-route-runner-*/*"
+                "arn:aws:s3:::804221019544-us-east-1-*-route-runner",
+                "arn:aws:s3:::804221019544-us-east-1-*-route-runner/*",
+                "arn:aws:s3:::804221019544-us-east-1-*-route-runner-*",
+                "arn:aws:s3:::804221019544-us-east-1-*-route-runner-*/*"
             ]
         },
         {
@@ -62,10 +62,8 @@
                 "iam:UpdateAssumeRolePolicy"
             ],
             "Resource": [
-                "arn:aws:iam::804221019544:role/dev-us-east-1-route-runner-*",
-                "arn:aws:iam::804221019544:role/prod-us-east-1-route-runner-*",
-                "arn:aws:iam::804221019544:role/804221019544-us-east-1-dev-route-runner-*",
-                "arn:aws:iam::804221019544:role/804221019544-us-east-1-prod-route-runner-*"
+                "arn:aws:iam::804221019544:role/*-us-east-1-route-runner-*",
+                "arn:aws:iam::804221019544:role/804221019544-us-east-1-*-route-runner-*"
             ]
         },
         {
@@ -107,21 +105,6 @@
             "Resource": "arn:aws:lambda:us-east-1:804221019544:function:*route-runner-*"
         },
         {
-            "Sid": "ManageRouteRunnerDynamoDb",
-            "Effect": "Allow",
-            "Action": [
-                "dynamodb:CreateTable",
-                "dynamodb:DeleteTable",
-                "dynamodb:Describe*",
-                "dynamodb:List*",
-                "dynamodb:TagResource",
-                "dynamodb:UntagResource",
-                "dynamodb:UpdateContinuousBackups",
-                "dynamodb:UpdateTable"
-            ],
-            "Resource": "arn:aws:dynamodb:us-east-1:804221019544:table/*route-runner-*"
-        },
-        {
             "Sid": "ManageRouteRunnerCloudFront",
             "Effect": "Allow",
             "Action": [
@@ -130,59 +113,33 @@
             "Resource": "*"
         },
         {
-            "Sid": "ManageRouteRunnerApiGateway",
+            "Sid": "ManageRouteRunnerAlarms",
             "Effect": "Allow",
             "Action": [
-                "apigateway:DELETE",
-                "apigateway:GET",
-                "apigateway:PATCH",
-                "apigateway:POST",
-                "apigateway:PUT",
-                "apigateway:TagResource",
-                "apigateway:UntagResource"
+                "cloudwatch:DescribeAlarms",
+                "cloudwatch:PutMetricAlarm",
+                "cloudwatch:DeleteAlarms",
+                "cloudwatch:ListTagsForResource",
+                "cloudwatch:TagResource",
+                "cloudwatch:UntagResource"
+            ],
+            "Resource": "arn:aws:cloudwatch:us-east-1:804221019544:alarm:*-us-east-1-route-runner-*"
+        },
+        {
+            "Sid": "ManageRouteRunnerAlertTopics",
+            "Effect": "Allow",
+            "Action": [
+                "sns:CreateTopic",
+                "sns:DeleteTopic",
+                "sns:GetTopicAttributes",
+                "sns:ListTagsForResource",
+                "sns:SetTopicAttributes",
+                "sns:TagResource",
+                "sns:UntagResource"
             ],
             "Resource": [
-                "arn:aws:apigateway:us-east-1::/apis*",
-                "arn:aws:apigateway:us-east-1::/tags/*"
+                "arn:aws:sns:us-east-1:804221019544:*-us-east-1-route-runner-alerts"
             ]
-        },
-        {
-            "Sid": "ManageRouteRunnerCognitoUserPools",
-            "Effect": "Allow",
-            "Action": [
-                "cognito-idp:CreateGroup",
-                "cognito-idp:CreateManagedLoginBranding",
-                "cognito-idp:CreateUserPool",
-                "cognito-idp:CreateUserPoolClient",
-                "cognito-idp:CreateUserPoolDomain",
-                "cognito-idp:DeleteGroup",
-                "cognito-idp:DeleteManagedLoginBranding",
-                "cognito-idp:DeleteUserPool",
-                "cognito-idp:DeleteUserPoolClient",
-                "cognito-idp:DeleteUserPoolDomain",
-                "cognito-idp:DescribeManagedLoginBranding",
-                "cognito-idp:DescribeManagedLoginBrandingByClient",
-                "cognito-idp:DescribeUserPool",
-                "cognito-idp:DescribeUserPoolClient",
-                "cognito-idp:GetGroup",
-                "cognito-idp:GetUserPoolMfaConfig",
-                "cognito-idp:ListTagsForResource",
-                "cognito-idp:ListUserPoolClients",
-                "cognito-idp:TagResource",
-                "cognito-idp:UntagResource",
-                "cognito-idp:UpdateGroup",
-                "cognito-idp:UpdateManagedLoginBranding",
-                "cognito-idp:UpdateUserPool",
-                "cognito-idp:UpdateUserPoolClient",
-                "cognito-idp:UpdateUserPoolDomain"
-            ],
-            "Resource": "arn:aws:cognito-idp:us-east-1:804221019544:userpool/*"
-        },
-        {
-            "Sid": "ReadRouteRunnerCognitoDomains",
-            "Effect": "Allow",
-            "Action": "cognito-idp:DescribeUserPoolDomain",
-            "Resource": "*"
         },
         {
             "Sid": "ManageCertificatesAndDns",
@@ -198,7 +155,7 @@
             "Sid": "ManageRouteRunnerDnsRecords",
             "Effect": "Allow",
             "Action": "route53:ChangeResourceRecordSets",
-            "Resource": "arn:aws:route53:::hostedzone/Z02965972DB3SHUMMD7TA"
+            "Resource": "arn:aws:route53:::hostedzone/Z02513943OI8D0F4XM1MJ"
         },
         {
             "Sid": "ManageRouteRunnerLogs",
@@ -225,6 +182,12 @@
             "Resource": "*"
         },
         {
+            "Sid": "DescribeApplicationParameters",
+            "Effect": "Allow",
+            "Action": "ssm:DescribeParameters",
+            "Resource": "*"
+        },
+        {
             "Sid": "ManageApplicationParameters",
             "Effect": "Allow",
             "Action": [
@@ -236,10 +199,7 @@
                 "ssm:ListTagsForResource"
             ],
             "Resource": [
-                "arn:aws:ssm:us-east-1:804221019544:parameter/dev-us-east-1-route-runner/routing-api-key",
-                "arn:aws:ssm:us-east-1:804221019544:parameter/prod-us-east-1-route-runner/routing-api-key",
-                "arn:aws:ssm:us-east-1:804221019544:parameter/dev-us-east-1-route-runner/google-maps-api-key",
-                "arn:aws:ssm:us-east-1:804221019544:parameter/prod-us-east-1-route-runner/google-maps-api-key"
+                "arn:aws:ssm:us-east-1:804221019544:parameter/*-us-east-1-route-runner/*"
             ]
         }
     ]

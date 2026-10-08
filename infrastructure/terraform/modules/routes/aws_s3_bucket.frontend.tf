@@ -1,6 +1,6 @@
 resource "aws_s3_bucket" "frontend" {
   bucket        = local.global_resource_prefix
-  force_destroy = false
+  force_destroy = var.frontend_bucket_force_destroy
   tags          = local.default_tags
 }
 resource "aws_s3_bucket_public_access_block" "frontend" {

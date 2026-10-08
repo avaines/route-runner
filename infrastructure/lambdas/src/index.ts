@@ -24,7 +24,7 @@ function config() {
         !Number.isInteger(n) ||
         n < 1 ||
         n >
-          { candidates: 6, concurrency: 2, maxAttempts: 8, deadlineMs: 20000 }[
+          { candidates: 8, concurrency: 2, maxAttempts: 16, deadlineMs: 20000 }[
             key
           ]
       )
