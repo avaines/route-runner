@@ -16,7 +16,7 @@ There is no live navigation, route export, account system or cloud synchronisati
 | `infrastructure/lambdas/` | TypeScript routing API, provider adapter and tests |
 | `packages/contracts/` | Shared runtime validation and API types |
 | `infrastructure/terraform/` | Environment configuration and reusable AWS resources |
-| `.github/workflows/` | Validation and operator-controlled deployment |
+| `.github/workflows/` | Validation, dev/prod deployment and dev teardown |
 | `docs/` | Specification, architecture and release validation |
 
 ## Local development
@@ -78,7 +78,7 @@ determine the application's region. Custom DNS is optional.
 Live provider compatibility, West Yorkshire route quality, provider terms,
 Google configuration and deployed security checks remain release gates. Use the
 [release checklist](docs/RELEASE_CHECKLIST.md) before operating the app with real
-provider credentials or publishing it. Deployment is an explicit operator step.
+provider credentials or publishing it. PRs deploy dev; merging destroys the dev app while retaining SSM keys. Pushes to main deploy prod, and manual runs select dev or prod.
 
 ## Design
 

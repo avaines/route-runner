@@ -2,6 +2,7 @@ export const LIMITS = {
   minDistanceMetres: 1000,
   maxDistanceMetres: 30000,
   maxBodyBytes: 8192,
+  maxWaypoints: 3,
 } as const;
 export type HillPreference = "flat" | "balanced" | "hilly";
 export interface RouteRequest {
@@ -9,6 +10,7 @@ export interface RouteRequest {
   distanceMetres: number;
   hillPreference: HillPreference;
   seed?: number;
+  waypoints?: { latitude: number; longitude: number }[];
 }
 export interface Route {
   id: string;
@@ -51,7 +53,13 @@ export function parseRouteRequest(x: unknown): RouteRequest {
   assert(object(x), "Request must be an object.");
   assert(
     Object.keys(x).every((k) =>
-      ["start", "distanceMetres", "hillPreference", "seed"].includes(k),
+      [
+        "start",
+        "distanceMetres",
+        "hillPreference",
+        "seed",
+        "waypoints",
+      ].includes(k),
     ),
     "Unexpected request field.",
   );
@@ -86,6 +94,24 @@ export function parseRouteRequest(x: unknown): RouteRequest {
         x.seed <= 4294967295),
     "Invalid seed.",
   );
+  if (x.waypoints !== undefined) {
+    assert(
+      Array.isArray(x.waypoints) && x.waypoints.length <= LIMITS.maxWaypoints,
+      "Choose at most three route waypoints.",
+    );
+    for (const point of x.waypoints)
+      assert(
+        object(point) &&
+          Object.keys(point).every((key) =>
+            ["latitude", "longitude"].includes(key),
+          ) &&
+          finite(point.latitude) &&
+          Math.abs(point.latitude) <= 90 &&
+          finite(point.longitude) &&
+          Math.abs(point.longitude) <= 180,
+        "Choose valid route waypoints.",
+      );
+  }
   return x as unknown as RouteRequest;
 }
 export function validateRouteRequest(x: unknown) {

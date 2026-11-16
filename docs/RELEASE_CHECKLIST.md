@@ -39,7 +39,7 @@ Documentation checked on 4 October 2026:
 - Verify AWS account, application region and remote-state access. The state bucket
   region and application region may differ.
 - Confirm GitHub repository/environment OIDC trust and deployment role permissions.
-- Populate the Terraform-created routing SecureString in SSM Parameter Store; never through Terraform
+- Populate the Terraform-created routing parameter manually in SSM; never pass its value through Terraform
   variables, checked-in files or frontend configuration.
 - Configure the Google browser key with API and website restrictions, including
   separate local development restrictions. Confirm billing and quotas.

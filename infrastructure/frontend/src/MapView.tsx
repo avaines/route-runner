@@ -70,17 +70,39 @@ export default function MapView({
   routes,
   selected,
   onSelect,
+  waypoints,
+  addingWaypoint,
+  onAddWaypoint,
+  onMoveWaypoint,
+  busy,
 }: {
   start: Start;
   onStart: (s: Start) => void;
   routes: Route[];
   selected?: string;
   onSelect: (id: string) => void;
+  waypoints: Start[];
+  addingWaypoint: boolean;
+  onAddWaypoint: (point: Start) => void;
+  onMoveWaypoint: (index: number, point: Start) => void;
+  busy: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null),
     map = useRef<google.maps.Map | null>(null),
-    handlers = useRef({ onStart, onSelect });
-  handlers.current = { onStart, onSelect };
+    handlers = useRef({
+      onStart,
+      onSelect,
+      onAddWaypoint,
+      onMoveWaypoint,
+      addingWaypoint,
+    });
+  handlers.current = {
+    onStart,
+    onSelect,
+    onAddWaypoint,
+    onMoveWaypoint,
+    addingWaypoint,
+  };
   const [ready, setReady] = useState(false),
     [error, setError] = useState("");
   const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
@@ -101,7 +123,9 @@ export default function MapView({
         });
         map.current.addListener("click", (event: google.maps.MapMouseEvent) => {
           if (event.latLng)
-            handlers.current.onStart({
+            (handlers.current.addingWaypoint
+              ? handlers.current.onAddWaypoint
+              : handlers.current.onStart)({
               latitude: event.latLng.lat(),
               longitude: event.latLng.lng(),
             });
@@ -145,10 +169,53 @@ export default function MapView({
         strokeWeight: route.id === selected ? 6 : 3,
         zIndex: route.id === selected ? 2 : 1,
       });
-      line.addListener("click", () => handlers.current.onSelect(route.id));
+      line.addListener("click", (event: google.maps.PolyMouseEvent) => {
+        if (route.id !== selected) handlers.current.onSelect(route.id);
+        else if (!busy && event.latLng)
+          handlers.current.onAddWaypoint({
+            latitude: event.latLng.lat(),
+            longitude: event.latLng.lng(),
+          });
+      });
       return line;
     });
     const route = routes.find((r) => r.id === selected);
+    // Bounded handles are an editing affordance, never a substitute for route geometry.
+    const shaping =
+      route && !busy && waypoints.length < 3
+        ? new google.maps.Polyline({
+            map: m,
+            strokeOpacity: 0,
+            editable: true,
+            clickable: false,
+            path: [1, 2, 3, 4, 5].map((part) => {
+              const [lng, lat] =
+                route.geometry.coordinates[
+                  Math.floor(
+                    ((route.geometry.coordinates.length - 1) * part) / 6,
+                  )
+                ];
+              return { lat, lng };
+            }),
+          })
+        : null;
+    let shapingTimer: ReturnType<typeof setTimeout> | undefined;
+    if (shaping) {
+      const path = shaping.getPath();
+      const changed = (index: number) => {
+        const point = path.getAt(index);
+        if (!point) return;
+        const next = { latitude: point.lat(), longitude: point.lng() };
+        clearTimeout(shapingTimer);
+        // Google may emit insert_at and multiple set_at events for one handle drag.
+        shapingTimer = setTimeout(
+          () => handlers.current.onAddWaypoint(next),
+          250,
+        );
+      };
+      path.addListener("set_at", changed);
+      path.addListener("insert_at", changed);
+    }
     const markers = route
       ? kilometreMarkers(route).map(
           (p) =>
@@ -168,6 +235,24 @@ export default function MapView({
             }),
         )
       : [];
+    const viaMarkers = waypoints.map((point, index) => {
+      const marker = new google.maps.Marker({
+        map: m,
+        position: { lat: point.latitude, lng: point.longitude },
+        draggable: !busy,
+        label: String(index + 1),
+        title: `Run via marker ${index + 1} — drag to reroute`,
+        zIndex: 10,
+      });
+      marker.addListener("dragend", (event: google.maps.MapMouseEvent) => {
+        if (event.latLng)
+          handlers.current.onMoveWaypoint(index, {
+            latitude: event.latLng.lat(),
+            longitude: event.latLng.lng(),
+          });
+      });
+      return marker;
+    });
     if (route) {
       const bounds = new google.maps.LatLngBounds();
       route.geometry.coordinates.forEach(([lng, lat]) =>
@@ -178,10 +263,13 @@ export default function MapView({
     } else m.panTo({ lat: start.latitude, lng: start.longitude });
     return () => {
       startMarker.setMap(null);
+      clearTimeout(shapingTimer);
+      shaping?.setMap(null);
       lines.forEach((l) => l.setMap(null));
       markers.forEach((marker) => marker.setMap(null));
+      viaMarkers.forEach((marker) => marker.setMap(null));
     };
-  }, [ready, start, routes, selected]);
+  }, [ready, start, routes, selected, waypoints, busy]);
   const preview = routes.find((r) => r.id === selected);
   const coords = preview?.geometry.coordinates || [];
   const minLng = Math.min(...coords.map((p) => p[0])),
@@ -241,7 +329,9 @@ export default function MapView({
       )}
       <div className="map-caption">
         {key && !error
-          ? "Satellite · Tap the map to place your start"
+          ? addingWaypoint
+            ? "Tap the map: run via here"
+            : "Satellite · Tap to move start; click or drag route to reshape"
           : "Map preview unavailable"}
         <span>Roads & paths</span>
       </div>

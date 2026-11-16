@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   LIMITS,
   validateRouteRequest,
@@ -9,6 +9,7 @@ import {
 import { generateRoutes } from "./api";
 import MapView from "./MapView";
 import Profile from "./Profile";
+import { insertWaypoint, nearestOnRoute, type Point } from "./waypoints";
 import { readFavourites, writeFavourites, type Favourite } from "./favourites";
 const defaultStart = { latitude: 53.8008, longitude: -1.5491 };
 const newSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
@@ -17,6 +18,10 @@ export default function App() {
     [distance, setDistance] = useState("5"),
     [custom, setCustom] = useState("7"),
     [hill, setHill] = useState<HillPreference>("balanced");
+  const [waypoints, setWaypoints] = useState<Point[]>([]);
+  const [addingWaypoint, setAddingWaypoint] = useState(false);
+  const [viaLatitude, setViaLatitude] = useState("");
+  const [viaLongitude, setViaLongitude] = useState("");
   const [response, setResponse] = useState<RouteResponse>(),
     [successRequest, setSuccessRequest] = useState<RouteRequest>(),
     [selected, setSelected] = useState(""),
@@ -41,7 +46,7 @@ export default function App() {
     setStart(s);
   };
   async function generate(override?: RouteRequest) {
-    if (busy) return;
+    if (busy && !override) return;
     const request = override || {
       start,
       distanceMetres: Math.round(
@@ -49,6 +54,7 @@ export default function App() {
       ),
       hillPreference: hill,
       seed: newSeed(),
+      ...(waypoints.length ? { waypoints } : {}),
     };
     const valid = validateRouteRequest(request);
     if (!valid.success) {
@@ -117,6 +123,43 @@ export default function App() {
     );
   }
   const route = response?.routes.find((r) => r.id === selected);
+  const displayWaypoints = useMemo(
+    () =>
+      !busy &&
+      route &&
+      JSON.stringify(successRequest?.waypoints || []) ===
+        JSON.stringify(waypoints)
+        ? waypoints.map((point) => nearestOnRoute(point, route).point)
+        : waypoints,
+    [busy, route, successRequest, waypoints],
+  );
+  function reshape(next: Point[]) {
+    if (next.length > LIMITS.maxWaypoints) {
+      setError(
+        "Use up to three run-via markers. Remove one before adding another.",
+      );
+      return;
+    }
+    change();
+    setWaypoints(next);
+    setAddingWaypoint(false);
+    if (response)
+      void generate({
+        start,
+        distanceMetres: Math.round(
+          Number(distance === "custom" ? custom : distance) * 1000,
+        ),
+        hillPreference: hill,
+        seed: successRequest?.seed ?? newSeed(),
+        ...(next.length ? { waypoints: next } : {}),
+      });
+  }
+  function addWaypoint(point: Point) {
+    reshape(insertWaypoint(waypoints, point, route));
+  }
+  function moveWaypoint(index: number, point: Point) {
+    reshape(waypoints.map((existing, i) => (i === index ? point : existing)));
+  }
   function persist(items: Favourite[]) {
     try {
       writeFavourites(items);
@@ -148,6 +191,7 @@ export default function App() {
     setSuccessRequest(item.request);
     setSelected(item.routeId);
     setStart(item.request.start);
+    setWaypoints(item.request.waypoints || []);
     setDistance("custom");
     setCustom(String(item.request.distanceMetres / 1000));
     setHill(item.request.hillPreference);
@@ -242,6 +286,88 @@ export default function App() {
                     `Start: ${Number.isFinite(start.latitude) ? start.latitude.toFixed(4) : "—"}, ${Number.isFinite(start.longitude) ? start.longitude.toFixed(4) : "—"}`}
                 </p>
               </fieldset>
+              <fieldset className="via-controls">
+                <legend>Run via somewhere</legend>
+                <button
+                  type="button"
+                  aria-pressed={addingWaypoint}
+                  onClick={() => setAddingWaypoint(!addingWaypoint)}
+                  disabled={waypoints.length >= LIMITS.maxWaypoints}
+                >
+                  {addingWaypoint
+                    ? "Cancel placing marker"
+                    : "Add run-via marker"}
+                </button>
+                <p className="hint">
+                  Tap the map to add a marker. Click the selected route or drag
+                  its corners to shape it. Moving a marker finds a new
+                  pedestrian route.
+                </p>
+                <details>
+                  <summary>Enter run-via coordinates</summary>
+                  <div className="coordinates">
+                    <label>
+                      Run-via latitude
+                      <input
+                        type="number"
+                        min="-90"
+                        max="90"
+                        step="any"
+                        value={viaLatitude}
+                        onChange={(e) => setViaLatitude(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Run-via longitude
+                      <input
+                        type="number"
+                        min="-180"
+                        max="180"
+                        step="any"
+                        value={viaLongitude}
+                        onChange={(e) => setViaLongitude(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={
+                      !viaLatitude ||
+                      !viaLongitude ||
+                      !Number.isFinite(Number(viaLatitude)) ||
+                      !Number.isFinite(Number(viaLongitude)) ||
+                      Math.abs(Number(viaLatitude)) > 90 ||
+                      Math.abs(Number(viaLongitude)) > 180 ||
+                      waypoints.length >= LIMITS.maxWaypoints
+                    }
+                    onClick={() =>
+                      addWaypoint({
+                        latitude: Number(viaLatitude),
+                        longitude: Number(viaLongitude),
+                      })
+                    }
+                  >
+                    Add these coordinates
+                  </button>
+                </details>
+                {waypoints.map((point, index) => (
+                  <div className="via-item" key={index}>
+                    <span>
+                      Via {index + 1} · {point.latitude.toFixed(4)},{" "}
+                      {point.longitude.toFixed(4)}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Remove run-via marker ${index + 1}`}
+                      onClick={() =>
+                        reshape(waypoints.filter((_, i) => i !== index))
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </fieldset>
               <fieldset>
                 <legend>How far?</legend>
                 <div className="segments">
@@ -335,6 +461,11 @@ export default function App() {
               routes={response?.routes || []}
               selected={selected}
               onSelect={setSelected}
+              waypoints={displayWaypoints}
+              addingWaypoint={addingWaypoint}
+              onAddWaypoint={addWaypoint}
+              onMoveWaypoint={moveWaypoint}
+              busy={busy}
             />
             <div aria-live="polite" className="status">
               {busy && (

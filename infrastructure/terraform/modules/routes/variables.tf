@@ -65,10 +65,6 @@ variable "cloudwatch_log_retention_days" {
   default     = 14
 }
 
-variable "enable_custom_domain" {
-  type    = bool
-  default = false
-}
 variable "alert_email" {
   type    = string
   default = null
@@ -91,4 +87,10 @@ variable "api_environment" {
     ])
     error_message = "Credentials and secret settings must use SSM Parameter Store, not environment override inputs."
   }
+}
+
+variable "frontend_bucket_force_destroy" {
+  type        = bool
+  description = "Allow removal of all frontend object versions when destroying the bucket."
+  default     = false
 }

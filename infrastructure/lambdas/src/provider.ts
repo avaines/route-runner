@@ -39,7 +39,12 @@ export function createCredentialLoader(
       abortSignal.throwIfAborted();
       if (result.Parameter?.Type !== "SecureString") throw Error();
       const value = result.Parameter.Value?.trim();
-      if (!value || value === "UNCONFIGURED" || /^[{\[\"]/.test(value) || /\s/.test(value))
+      if (
+        !value ||
+        value === "UNCONFIGURED" ||
+        /^[{\[\"]/.test(value) ||
+        /\s/.test(value)
+      )
         throw Error();
       cached = {
         name: parameterName,
@@ -73,24 +78,41 @@ export class OrsProvider implements Provider {
     seed: number,
     signal: AbortSignal,
   ): Promise<Candidate> {
+    return this.directions(
+      {
+        coordinates: [[request.start.longitude, request.start.latitude]],
+        options: {
+          round_trip: {
+            length: request.distanceMetres,
+            points: 3,
+            seed: seed % 2147483647,
+          },
+        },
+      },
+      signal,
+    );
+  }
+  async generateGuidedLoop(
+    coordinates: [number, number][],
+    signal: AbortSignal,
+  ): Promise<Candidate> {
+    return this.directions({ coordinates }, signal);
+  }
+  private async directions(
+    payload: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<Candidate> {
     const key = await this.key(signal);
     signal.throwIfAborted();
     const response = await this.fetcher(
-      "https://api.openrouteservice.org/v2/directions/foot-walking/geojson",
+      "https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson",
       {
         method: "POST",
         headers: { Authorization: key, "Content-Type": "application/json" },
         body: JSON.stringify({
-          coordinates: [[request.start.longitude, request.start.latitude]],
+          ...payload,
           elevation: true,
           instructions: false,
-          options: {
-            round_trip: {
-              length: request.distanceMetres,
-              points: 3,
-              seed: seed % 2147483647,
-            },
-          },
         }),
         signal,
       },

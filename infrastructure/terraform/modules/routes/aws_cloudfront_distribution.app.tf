@@ -50,7 +50,7 @@ resource "aws_cloudfront_distribution" "app" {
   is_ipv6_enabled     = true
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
-  aliases             = var.enable_custom_domain ? concat([local.domain_name], local.alias_domain_names) : []
+  aliases             = concat([local.domain_name], local.alias_domain_names)
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id                = "static"
@@ -90,10 +90,10 @@ resource "aws_cloudfront_distribution" "app" {
     geo_restriction { restriction_type = "none" }
   }
   viewer_certificate {
-    cloudfront_default_certificate = !var.enable_custom_domain
-    acm_certificate_arn            = var.enable_custom_domain ? aws_acm_certificate_validation.app[0].certificate_arn : null
-    ssl_support_method             = var.enable_custom_domain ? "sni-only" : null
-    minimum_protocol_version       = var.enable_custom_domain ? "TLSv1.2_2021" : "TLSv1"
+
+    acm_certificate_arn      = aws_acm_certificate_validation.app.certificate_arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
   }
   tags = local.default_tags
 }

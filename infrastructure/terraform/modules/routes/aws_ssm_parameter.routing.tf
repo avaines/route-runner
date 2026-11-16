@@ -1,5 +1,5 @@
 resource "aws_ssm_parameter" "routing" {
-  name        = local.routing_parameter_name
+  name        = "/${local.resource_prefix}/routing-api-key"
   description = "openrouteservice API key; populate securely after provisioning"
   type        = "SecureString"
   tier        = "Standard"
@@ -11,6 +11,7 @@ resource "aws_ssm_parameter" "routing" {
   tags = local.default_tags
 
   lifecycle {
+    prevent_destroy = true
     # Retain subsequent out-of-band credential updates on future applies.
     ignore_changes = [value_wo_version]
   }
